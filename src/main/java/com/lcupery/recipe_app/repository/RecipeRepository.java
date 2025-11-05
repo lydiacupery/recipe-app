@@ -1,10 +1,10 @@
 package com.lcupery.recipe_app.repository;
 
-import com.lcupery.recipe_app.entity.Employee;
+import com.lcupery.recipe_app.entity.Recipe;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public interface EmployeeRepository extends JpaRepository<Employee, Long> {
+public interface RecipeRepository extends JpaRepository<Recipe, Long> {
 
 }
