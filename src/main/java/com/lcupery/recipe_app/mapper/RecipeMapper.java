@@ -13,6 +13,8 @@ public class RecipeMapper {
         recipeDto.setId(recipe.getId());
         recipeDto.setName(recipe.getName());
         recipeDto.setDescription(recipe.getDescription());
+        recipeDto.setSourceType(recipe.getSourceType());
+        recipeDto.setSourceValue(recipe.getSourceValue());
         recipeDto.setIngredients(
                 recipe.getIngredients().stream()
                         .map(IngredientMapper::mapToIngredientDto)
@@ -26,6 +28,8 @@ public class RecipeMapper {
         recipe.setId(recipeDto.getId());
         recipe.setName(recipeDto.getName());
         recipe.setDescription(recipeDto.getDescription());
+        recipe.setSourceType(recipeDto.getSourceType());
+        recipe.setSourceValue(recipeDto.getSourceValue());
 
         if (recipeDto.getIngredients() != null) {
             recipe.setIngredients(

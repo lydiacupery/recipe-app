@@ -26,6 +26,13 @@ public class Recipe {
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "source_type")
+    private SourceType sourceType;
+
+    @Column(name = "source_value", columnDefinition = "TEXT")
+    private String sourceValue;
+
     @OneToMany(mappedBy = "recipe", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Ingredient> ingredients = new ArrayList<>();
 }
