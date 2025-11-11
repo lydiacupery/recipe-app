@@ -436,11 +436,18 @@ public class RecipeExtractorService {
                 "  \"ingredients\": [{\"name\": \"ingredient name\", \"quantity\": \"amount\"}],\n" +
                 "  \"steps\": [{\"stepNumber\": 1, \"instruction\": \"step instruction\"}]\n" +
                 "}\n\n" +
+                "IMPORTANT RULES:\n" +
+                "1. ONLY extract information that is explicitly present in the source content\n" +
+                "2. DO NOT infer, assume, or add any steps that are not written in the source\n" +
+                "3. DO NOT add common cooking steps unless they are explicitly stated\n" +
+                "4. If steps/instructions are not present in the source, return an empty steps array\n" +
+                "5. Copy the exact wording from the source - do not paraphrase or rewrite\n" +
+                "6. If a field is not present, use null or empty string/array\n\n" +
                 "Webpage content:\n%s", cleanText
         );
 
         String requestBody = String.format(
-                "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"user\", \"content\": %s}], \"temperature\": 0.3}",
+                "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"user\", \"content\": %s}], \"temperature\": 0.1}",
                 objectMapper.writeValueAsString(prompt)
         );
 
