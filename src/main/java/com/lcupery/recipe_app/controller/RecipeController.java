@@ -1,15 +1,20 @@
 package com.lcupery.recipe_app.controller;
 
 import com.lcupery.recipe_app.dto.RecipeDto;
+import com.lcupery.recipe_app.service.ImageGenerationService;
 import com.lcupery.recipe_app.service.RecipeService;
+import com.lcupery.recipe_app.service.VercelBlobService;
 import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @CrossOrigin("*")
@@ -18,6 +23,8 @@ import java.util.List;
 @RequestMapping("/api/recipes")
 public class RecipeController {
     private RecipeService recipeService;
+    private VercelBlobService vercelBlobService;
+    private ImageGenerationService imageGenerationService;
 
     // build add recipe REST API
     @PostMapping
@@ -54,6 +61,42 @@ public class RecipeController {
     public ResponseEntity<String> deleteRecipe(@PathVariable("id") Long recipeId) {
         recipeService.deleteRecipe(recipeId);
         return ResponseEntity.ok("Recipe deleted");
+    }
+
+    @PostMapping(value = "/upload-image", consumes = "multipart/form-data")
+    public ResponseEntity<Map<String, String>> uploadImage(@RequestParam("file") MultipartFile file) {
+        try {
+            String imageUrl = vercelBlobService.uploadImage(file);
+            return ResponseEntity.ok(Map.of("url", imageUrl));
+        } catch (Exception e) {
+            log.error("Error uploading image", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/generate-image")
+    public ResponseEntity<Map<String, String>> generateImage(@RequestBody Map<String, String> request) {
+        try {
+            String recipeName = request.get("name");
+            String description = request.get("description");
+            String ingredients = request.get("ingredients");
+            String steps = request.get("steps");
+
+            if (recipeName == null || recipeName.isEmpty()) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("error", "Recipe name is required"));
+            }
+
+            log.info("Generating image for recipe: {}", recipeName);
+
+            String imageUrl = imageGenerationService.generateRecipeImage(recipeName, description, ingredients, steps);
+            return ResponseEntity.ok(Map.of("url", imageUrl));
+        } catch (Exception e) {
+            log.error("Error generating image", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", e.getMessage()));
+        }
     }
 
 }

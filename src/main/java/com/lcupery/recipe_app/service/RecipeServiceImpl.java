@@ -52,6 +52,7 @@ public class RecipeServiceImpl implements RecipeService {
         recipe.setCookTime(updatedRecipe.getCookTime());
         recipe.setServings(updatedRecipe.getServings());
         recipe.setCategory(updatedRecipe.getCategory());
+        recipe.setImageUrl(updatedRecipe.getImageUrl());
 
         // Clear existing ingredients and add new ones
         recipe.getIngredients().clear();

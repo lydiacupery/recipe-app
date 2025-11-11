@@ -21,6 +21,7 @@ public class RecipeMapper {
         recipeDto.setCookTime(recipe.getCookTime());
         recipeDto.setServings(recipe.getServings());
         recipeDto.setCategory(recipe.getCategory());
+        recipeDto.setImageUrl(recipe.getImageUrl());
         recipeDto.setIngredients(
                 recipe.getIngredients().stream()
                         .map(IngredientMapper::mapToIngredientDto)
@@ -45,6 +46,7 @@ public class RecipeMapper {
         recipe.setCookTime(recipeDto.getCookTime());
         recipe.setServings(recipeDto.getServings());
         recipe.setCategory(recipeDto.getCategory());
+        recipe.setImageUrl(recipeDto.getImageUrl());
 
         if (recipeDto.getIngredients() != null) {
             recipe.setIngredients(

@@ -25,6 +25,7 @@ public class RecipeDto {
     private String cookTime;
     private String servings;
     private String category;
+    private String imageUrl;
     private List<IngredientDto> ingredients = new ArrayList<>();
     private List<StepDto> steps = new ArrayList<>();
 }
