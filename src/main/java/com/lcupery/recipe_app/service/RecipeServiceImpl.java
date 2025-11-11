@@ -46,6 +46,12 @@ public class RecipeServiceImpl implements RecipeService {
 
         recipe.setName(updatedRecipe.getName());
         recipe.setDescription(updatedRecipe.getDescription());
+        recipe.setSourceType(updatedRecipe.getSourceType());
+        recipe.setSourceValue(updatedRecipe.getSourceValue());
+        recipe.setPrepTime(updatedRecipe.getPrepTime());
+        recipe.setCookTime(updatedRecipe.getCookTime());
+        recipe.setServings(updatedRecipe.getServings());
+        recipe.setCategory(updatedRecipe.getCategory());
 
         // Clear existing ingredients and add new ones
         recipe.getIngredients().clear();
@@ -55,6 +61,17 @@ public class RecipeServiceImpl implements RecipeService {
                     com.lcupery.recipe_app.mapper.IngredientMapper.mapToIngredient(ingredientDto);
                 ingredient.setRecipe(recipe);
                 recipe.getIngredients().add(ingredient);
+            });
+        }
+
+        // Clear existing steps and add new ones
+        recipe.getSteps().clear();
+        if (updatedRecipe.getSteps() != null) {
+            updatedRecipe.getSteps().forEach(stepDto -> {
+                com.lcupery.recipe_app.entity.Step step =
+                    com.lcupery.recipe_app.mapper.StepMapper.mapToStep(stepDto);
+                step.setRecipe(recipe);
+                recipe.getSteps().add(step);
             });
         }
 

@@ -4,12 +4,14 @@ import com.lcupery.recipe_app.dto.RecipeDto;
 import com.lcupery.recipe_app.service.RecipeService;
 import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+@Slf4j
 @CrossOrigin("*")
 @AllArgsConstructor
 @RestController
@@ -40,7 +42,11 @@ public class RecipeController {
     // Build Update Recipe REST API
     @PutMapping("{id}")
     public ResponseEntity<RecipeDto> updateRecipe(@PathVariable("id") Long recipeId, @Valid @RequestBody RecipeDto updatedRecipe) {
+        log.debug("DEBUG - Received update request for recipe ID: {}", recipeId);
+        log.debug("DEBUG - Category value in request: {}", updatedRecipe.getCategory());
+        log.debug("DEBUG - Full RecipeDto: {}", updatedRecipe);
         RecipeDto recipeDto = recipeService.updateRecipe(recipeId, updatedRecipe);
+        log.debug("DEBUG - Category value after update: {}", recipeDto.getCategory());
         return ResponseEntity.ok(recipeDto);
     }
 

@@ -33,6 +33,21 @@ public class Recipe {
     @Column(name = "source_value", columnDefinition = "TEXT")
     private String sourceValue;
 
+    @Column(name = "prep_time")
+    private String prepTime;
+
+    @Column(name = "cook_time")
+    private String cookTime;
+
+    @Column(name = "servings")
+    private String servings;
+
+    @Column(name = "category")
+    private String category;
+
     @OneToMany(mappedBy = "recipe", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Ingredient> ingredients = new ArrayList<>();
+
+    @OneToMany(mappedBy = "recipe", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<Step> steps = new ArrayList<>();
 }
