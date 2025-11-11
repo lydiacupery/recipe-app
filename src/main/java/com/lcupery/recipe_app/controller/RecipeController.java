@@ -2,6 +2,7 @@ package com.lcupery.recipe_app.controller;
 
 import com.lcupery.recipe_app.dto.RecipeDto;
 import com.lcupery.recipe_app.service.ImageGenerationService;
+import com.lcupery.recipe_app.service.ImageRecipeExtractorService;
 import com.lcupery.recipe_app.service.RecipeService;
 import com.lcupery.recipe_app.service.VercelBlobService;
 import jakarta.validation.Valid;
@@ -25,6 +26,7 @@ public class RecipeController {
     private RecipeService recipeService;
     private VercelBlobService vercelBlobService;
     private ImageGenerationService imageGenerationService;
+    private ImageRecipeExtractorService imageRecipeExtractorService;
 
     // build add recipe REST API
     @PostMapping
@@ -94,6 +96,22 @@ public class RecipeController {
             return ResponseEntity.ok(Map.of("url", imageUrl));
         } catch (Exception e) {
             log.error("Error generating image", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @PostMapping(value = "/extract-from-image", consumes = "multipart/form-data")
+    public ResponseEntity<?> extractFromImage(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "citation", required = false) String citation) {
+        try {
+            log.info("Extracting recipe from uploaded image: {}", file.getOriginalFilename());
+
+            RecipeDto recipe = imageRecipeExtractorService.extractRecipeFromImage(file, citation);
+            return ResponseEntity.ok(recipe);
+        } catch (Exception e) {
+            log.error("Error extracting recipe from image", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", e.getMessage()));
         }
