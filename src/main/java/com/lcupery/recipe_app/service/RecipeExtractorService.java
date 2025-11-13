@@ -2,6 +2,9 @@ package com.lcupery.recipe_app.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gargoylesoftware.htmlunit.BrowserVersion;
+import com.gargoylesoftware.htmlunit.WebClient;
+import com.gargoylesoftware.htmlunit.html.HtmlPage;
 import com.lcupery.recipe_app.dto.IngredientDto;
 import com.lcupery.recipe_app.dto.RecipeDto;
 import com.lcupery.recipe_app.dto.StepDto;
@@ -59,19 +62,112 @@ public class RecipeExtractorService {
         return recipe;
     }
 
+    /**
+     * Check if Jina AI returned an error response instead of actual content
+     * Error responses are JSON objects with fields like "code", "name", "status", "message"
+     */
+    private boolean isJinaErrorResponse(String content) {
+        if (content == null || content.trim().isEmpty()) {
+            return true;
+        }
+
+        // Check if response looks like a JSON error (starts with { and contains "code" or "error")
+        String trimmed = content.trim();
+        if (trimmed.startsWith("{")) {
+            try {
+                JsonNode node = objectMapper.readTree(trimmed);
+                // Jina error responses have these fields
+                if (node.has("code") && node.has("status") && node.has("message")) {
+                    String message = node.get("message").asText();
+                    log.warn("Jina AI error detected: {}", message);
+                    return true;
+                }
+                // Generic error response
+                if (node.has("error")) {
+                    log.warn("Jina AI error detected: {}", node.get("error").asText());
+                    return true;
+                }
+            } catch (Exception e) {
+                // Not valid JSON, probably actual content
+                return false;
+            }
+        }
+
+        // If content is suspiciously short (less than 100 chars), it might be an error
+        if (content.length() < 100) {
+            log.warn("Jina AI returned suspiciously short content ({}), treating as error", content.length());
+            return true;
+        }
+
+        return false;
+    }
+
     private String fetchWebpage(String url) throws IOException, InterruptedException {
         log.debug("Fetching webpage content from: {}", url);
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .header("User-Agent", "Mozilla/5.0 (Recipe App)")
-                .GET()
-                .build();
 
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() != 200) {
-            throw new IOException("Failed to fetch URL. Status code: " + response.statusCode());
+        // Try Jina AI Reader first (best for JavaScript-heavy sites, handles rendering)
+        try {
+            log.debug("Using Jina AI Reader to fetch and clean content");
+            String jinaUrl = "https://r.jina.ai/" + url;
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(jinaUrl))
+                    .header("User-Agent", "Mozilla/5.0 (Recipe App)")
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200) {
+                String content = response.body();
+
+                // Check if Jina returned an error JSON instead of actual content
+                if (isJinaErrorResponse(content)) {
+                    log.warn("Jina AI Reader returned error response, trying HtmlUnit");
+                } else {
+                    log.debug("Successfully fetched with Jina AI Reader, length: {}", content.length());
+                    return content;
+                }
+            } else {
+                log.warn("Jina AI Reader returned status {}, trying HtmlUnit", response.statusCode());
+            }
+        } catch (Exception e) {
+            log.warn("Jina AI Reader failed: {}, trying HtmlUnit", e.getMessage());
         }
-        return response.body();
+
+        // Try HtmlUnit as fallback (renders JavaScript locally)
+        try (WebClient webClient = new WebClient(BrowserVersion.CHROME)) {
+            // Configure WebClient
+            webClient.getOptions().setCssEnabled(false);
+            webClient.getOptions().setJavaScriptEnabled(true);
+            webClient.getOptions().setThrowExceptionOnScriptError(false);
+            webClient.getOptions().setThrowExceptionOnFailingStatusCode(false);
+            webClient.getOptions().setTimeout(10000); // 10 second timeout
+
+            log.debug("Using HtmlUnit to render JavaScript content");
+            HtmlPage page = webClient.getPage(url);
+
+            // Wait for JavaScript to execute
+            webClient.waitForBackgroundJavaScript(3000); // Wait up to 3 seconds
+
+            String html = page.asXml();
+            log.debug("Successfully fetched page with HtmlUnit, length: {}", html.length());
+            return html;
+
+        } catch (Exception e) {
+            log.warn("HtmlUnit fetch failed, falling back to simple HTTP: {}", e.getMessage());
+
+            // Fallback to simple HTTP fetch
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("User-Agent", "Mozilla/5.0 (Recipe App)")
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                throw new IOException("Failed to fetch URL. Status code: " + response.statusCode());
+            }
+            return response.body();
+        }
     }
 
     private RecipeDto extractFromSchemaOrg(String htmlContent, String url) throws Exception {
