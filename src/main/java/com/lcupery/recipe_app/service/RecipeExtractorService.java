@@ -30,34 +30,82 @@ public class RecipeExtractorService {
     @Value("${openai.api.key:}")
     private String openaiApiKey;
 
+    @Value("${jina.enabled:true}")
+    private boolean jinaEnabled;
+
     private final HttpClient httpClient = HttpClient.newHttpClient();
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
+
+    public RecipeExtractorService() {
+        // Configure ObjectMapper to handle non-standard JSON (with comments)
+        this.objectMapper = new ObjectMapper();
+        this.objectMapper.configure(com.fasterxml.jackson.core.JsonParser.Feature.ALLOW_COMMENTS, true);
+    }
 
     /**
-     * Extract recipe from URL using hybrid approach:
-     * 1. Try schema.org extraction first
-     * 2. Fall back to LLM if schema.org fails
+     * Extract recipe from URL using smart fallback approach:
+     * 1. Try direct HTTP + schema.org (fast, works for most sites)
+     * 2. Try HtmlUnit + schema.org (for JS-heavy sites)
+     * 3. Try Jina AI + schema.org (last resort for blocked sites)
+     * 4. Fall back to LLM if all schema.org attempts fail
      */
     public RecipeDto extractRecipeFromUrl(String url) throws IOException, InterruptedException {
         log.info("Starting recipe extraction from URL: {}", url);
 
-        // Fetch the webpage content
-        String htmlContent = fetchWebpage(url);
+        String htmlContent = null;
+        RecipeDto recipe = null;
 
-        // Try schema.org first
+        // Method 1: Try direct HTTP first (fastest, works for most recipe sites)
         try {
-            RecipeDto recipe = extractFromSchemaOrg(htmlContent, url);
+            log.info("Method #1: Direct HTTP fetch + schema.org extraction");
+            htmlContent = fetchWithDirectHttp(url);
+            recipe = extractFromSchemaOrg(htmlContent, url);
             if (recipe != null) {
-                log.info("✓ Successfully extracted recipe using Schema.org approach");
+                log.info("✓ Successfully extracted recipe using direct HTTP + schema.org");
                 return recipe;
             }
+            log.info("Direct HTTP succeeded but no schema.org data found, trying HtmlUnit...");
         } catch (Exception e) {
-            log.debug("Schema.org extraction failed: {}", e.getMessage());
+            log.warn("✗ Direct HTTP failed: {}", e.getMessage());
         }
 
-        // Fall back to LLM
-        log.info("Schema.org extraction failed, falling back to LLM...");
-        RecipeDto recipe = extractUsingLLM(htmlContent, url);
+        // Method 2: Try HtmlUnit (for JavaScript-heavy sites)
+        try {
+            log.info("Method #2: HtmlUnit fetch + schema.org extraction");
+            htmlContent = fetchWithHtmlUnit(url);
+            recipe = extractFromSchemaOrg(htmlContent, url);
+            if (recipe != null) {
+                log.info("✓ Successfully extracted recipe using HtmlUnit + schema.org");
+                return recipe;
+            }
+            log.info("HtmlUnit succeeded but no schema.org data found, trying Jina AI...");
+        } catch (Exception e) {
+            log.warn("✗ HtmlUnit failed: {}", e.getMessage());
+        }
+
+        // Method 3: Try Jina AI as last resort (if enabled)
+        if (jinaEnabled) {
+            try {
+                log.info("Method #3: Jina AI fetch + schema.org extraction");
+                htmlContent = fetchWithJinaAi(url);
+                recipe = extractFromSchemaOrg(htmlContent, url);
+                if (recipe != null) {
+                    log.info("✓ Successfully extracted recipe using Jina AI + schema.org");
+                    return recipe;
+                }
+                log.info("Jina AI succeeded but no schema.org data found, falling back to LLM...");
+            } catch (Exception e) {
+                log.warn("✗ Jina AI failed: {}", e.getMessage());
+            }
+        }
+
+        // Method 4: Fall back to LLM extraction if we have any HTML content
+        if (htmlContent == null) {
+            throw new IOException("All fetch methods failed - unable to retrieve webpage content");
+        }
+
+        log.info("Method #4: LLM extraction (no schema.org data found in any method)");
+        recipe = extractUsingLLM(htmlContent, url);
         log.info("✓ Successfully extracted recipe using LLM approach");
         return recipe;
     }
@@ -102,72 +150,75 @@ public class RecipeExtractorService {
         return false;
     }
 
-    private String fetchWebpage(String url) throws IOException, InterruptedException {
-        log.debug("Fetching webpage content from: {}", url);
+    /**
+     * Fetch method 1: Direct HTTP (fast, works for most sites)
+     */
+    private String fetchWithDirectHttp(String url) throws IOException, InterruptedException {
+        log.debug("Fetching with direct HTTP...");
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+                .header("Accept-Language", "en-US,en;q=0.5")
+                .header("Accept-Encoding", "gzip, deflate")
+                .header("Connection", "keep-alive")
+                .header("Upgrade-Insecure-Requests", "1")
+                .GET()
+                .build();
 
-        // Try Jina AI Reader first (best for JavaScript-heavy sites, handles rendering)
-        try {
-            log.debug("Using Jina AI Reader to fetch and clean content");
-            String jinaUrl = "https://r.jina.ai/" + url;
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(jinaUrl))
-                    .header("User-Agent", "Mozilla/5.0 (Recipe App)")
-                    .GET()
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() == 200) {
-                String content = response.body();
-
-                // Check if Jina returned an error JSON instead of actual content
-                if (isJinaErrorResponse(content)) {
-                    log.warn("Jina AI Reader returned error response, trying HtmlUnit");
-                } else {
-                    log.debug("Successfully fetched with Jina AI Reader, length: {}", content.length());
-                    return content;
-                }
-            } else {
-                log.warn("Jina AI Reader returned status {}, trying HtmlUnit", response.statusCode());
-            }
-        } catch (Exception e) {
-            log.warn("Jina AI Reader failed: {}, trying HtmlUnit", e.getMessage());
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() != 200) {
+            throw new IOException("Direct HTTP failed with status: " + response.statusCode());
         }
+        log.debug("✓ Direct HTTP successful, content length: {}", response.body().length());
+        return response.body();
+    }
 
-        // Try HtmlUnit as fallback (renders JavaScript locally)
+    /**
+     * Fetch method 2: HtmlUnit (renders JavaScript for dynamic sites)
+     */
+    private String fetchWithHtmlUnit(String url) throws IOException {
+        log.debug("Fetching with HtmlUnit (renders JavaScript)...");
         try (WebClient webClient = new WebClient(BrowserVersion.CHROME)) {
-            // Configure WebClient
             webClient.getOptions().setCssEnabled(false);
             webClient.getOptions().setJavaScriptEnabled(true);
             webClient.getOptions().setThrowExceptionOnScriptError(false);
             webClient.getOptions().setThrowExceptionOnFailingStatusCode(false);
-            webClient.getOptions().setTimeout(10000); // 10 second timeout
+            webClient.getOptions().setTimeout(15000);
 
-            log.debug("Using HtmlUnit to render JavaScript content");
             HtmlPage page = webClient.getPage(url);
-
-            // Wait for JavaScript to execute
-            webClient.waitForBackgroundJavaScript(3000); // Wait up to 3 seconds
+            webClient.waitForBackgroundJavaScript(5000);
 
             String html = page.asXml();
-            log.debug("Successfully fetched page with HtmlUnit, length: {}", html.length());
+            log.debug("✓ HtmlUnit successful, content length: {}", html.length());
             return html;
-
-        } catch (Exception e) {
-            log.warn("HtmlUnit fetch failed, falling back to simple HTTP: {}", e.getMessage());
-
-            // Fallback to simple HTTP fetch
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .header("User-Agent", "Mozilla/5.0 (Recipe App)")
-                    .GET()
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() != 200) {
-                throw new IOException("Failed to fetch URL. Status code: " + response.statusCode());
-            }
-            return response.body();
         }
+    }
+
+    /**
+     * Fetch method 3: Jina AI (last resort, often blocked)
+     */
+    private String fetchWithJinaAi(String url) throws IOException, InterruptedException {
+        log.debug("Fetching with Jina AI Reader...");
+        String jinaUrl = "https://r.jina.ai/" + url;
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(jinaUrl))
+                .header("User-Agent", "Mozilla/5.0 (Recipe App)")
+                .GET()
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() != 200) {
+            throw new IOException("Jina AI failed with status: " + response.statusCode());
+        }
+
+        String content = response.body();
+        if (isJinaErrorResponse(content)) {
+            throw new IOException("Jina AI blocked (SecurityCompromiseError or rate limit)");
+        }
+
+        log.debug("✓ Jina AI successful, content length: {}", content.length());
+        return content;
     }
 
     private RecipeDto extractFromSchemaOrg(String htmlContent, String url) throws Exception {
@@ -185,6 +236,19 @@ public class RecipeExtractorService {
             scriptCount++;
             String jsonContent = matcher.group(1).trim();
             log.debug("Found JSON-LD script block #{}", scriptCount);
+
+            // Skip if content looks like JavaScript code instead of JSON
+            if (jsonContent.contains("function(") || jsonContent.contains("var ") ||
+                jsonContent.contains("const ") || jsonContent.contains("let ")) {
+                log.debug("Skipping JSON-LD block #{} - appears to be JavaScript code, not JSON", scriptCount);
+                continue;
+            }
+
+            // Skip if content is empty or too short
+            if (jsonContent.length() < 10) {
+                log.debug("Skipping JSON-LD block #{} - content too short", scriptCount);
+                continue;
+            }
 
             try {
                 JsonNode rootNode = objectMapper.readTree(jsonContent);
