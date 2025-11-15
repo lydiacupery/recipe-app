@@ -1,10 +1,13 @@
 package com.lcupery.recipe_app.controller;
 
 import com.lcupery.recipe_app.dto.RecipeDto;
+import com.lcupery.recipe_app.dto.RecipeRatingDto;
 import com.lcupery.recipe_app.entity.User;
 import com.lcupery.recipe_app.service.ImageGenerationService;
 import com.lcupery.recipe_app.service.ImageRecipeExtractorService;
+import com.lcupery.recipe_app.service.RecipeRatingService;
 import com.lcupery.recipe_app.service.RecipeService;
+import com.lcupery.recipe_app.service.RecipeShareService;
 import com.lcupery.recipe_app.service.UserService;
 import com.lcupery.recipe_app.service.VercelBlobService;
 import jakarta.validation.Valid;
@@ -29,6 +32,8 @@ import java.util.stream.Collectors;
 public class RecipeController {
     private RecipeService recipeService;
     private UserService userService;
+    private RecipeShareService recipeShareService;
+    private RecipeRatingService recipeRatingService;
     private VercelBlobService vercelBlobService;
     private ImageGenerationService imageGenerationService;
     private ImageRecipeExtractorService imageRecipeExtractorService;
@@ -69,6 +74,93 @@ public class RecipeController {
         User user = getUserFromJwt(authentication);
         recipeService.deleteRecipe(recipeId, user);
         return ResponseEntity.ok("Recipe deleted");
+    }
+
+    // Create share link for a recipe
+    @PostMapping("{id}/share")
+    public ResponseEntity<Map<String, String>> createShareLink(@PathVariable("id") Long recipeId, Authentication authentication) {
+        try {
+            User user = getUserFromJwt(authentication);
+            String token = recipeShareService.createShareLink(recipeId, user);
+            return ResponseEntity.ok(Map.of("token", token, "shareUrl", "/shared/" + token));
+        } catch (Exception e) {
+            log.error("Error creating share link for recipe {}", recipeId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    // View shared recipe (PUBLIC - no authentication required)
+    @GetMapping("shared/{token}")
+    public ResponseEntity<RecipeDto> getSharedRecipe(@PathVariable("token") String token) {
+        try {
+            RecipeDto recipe = recipeShareService.getSharedRecipe(token);
+            return ResponseEntity.ok(recipe);
+        } catch (Exception e) {
+            log.error("Error fetching shared recipe with token {}", token, e);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(null);
+        }
+    }
+
+    // Save/copy shared recipe to user's account
+    @PostMapping("shared/{token}/save")
+    public ResponseEntity<RecipeDto> saveSharedRecipe(@PathVariable("token") String token, Authentication authentication) {
+        try {
+            User user = getUserFromJwt(authentication);
+            RecipeDto savedRecipe = recipeShareService.saveSharedRecipe(token, user);
+            return ResponseEntity.ok(savedRecipe);
+        } catch (Exception e) {
+            log.error("Error saving shared recipe with token {}", token, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(null);
+        }
+    }
+
+    // Add or update rating for a recipe
+    @PostMapping("{id}/ratings")
+    public ResponseEntity<RecipeRatingDto> addOrUpdateRating(
+            @PathVariable("id") Long recipeId,
+            @RequestBody Map<String, Object> ratingData,
+            Authentication authentication) {
+        try {
+            User user = getUserFromJwt(authentication);
+            int rating = (int) ratingData.get("rating");
+            String comment = (String) ratingData.get("comment");
+            String raterName = (String) ratingData.get("raterName");
+
+            RecipeRatingDto savedRating = recipeRatingService.addOrUpdateRating(recipeId, rating, comment, raterName, user);
+            return ResponseEntity.ok(savedRating);
+        } catch (Exception e) {
+            log.error("Error adding rating for recipe {}", recipeId, e);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
+        }
+    }
+
+    // Get all ratings for a recipe
+    @GetMapping("{id}/ratings")
+    public ResponseEntity<List<RecipeRatingDto>> getRatings(@PathVariable("id") Long recipeId, Authentication authentication) {
+        try {
+            User user = getUserFromJwt(authentication);
+            List<RecipeRatingDto> ratings = recipeRatingService.getRatingsForRecipe(recipeId, user);
+            return ResponseEntity.ok(ratings);
+        } catch (Exception e) {
+            log.error("Error fetching ratings for recipe {}", recipeId, e);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
+        }
+    }
+
+    // Delete a rating
+    @DeleteMapping("ratings/{ratingId}")
+    public ResponseEntity<String> deleteRating(@PathVariable("ratingId") Long ratingId, Authentication authentication) {
+        try {
+            User user = getUserFromJwt(authentication);
+            recipeRatingService.deleteRating(ratingId, user);
+            return ResponseEntity.ok("Rating deleted");
+        } catch (Exception e) {
+            log.error("Error deleting rating {}", ratingId, e);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Rating not found");
+        }
     }
 
     // Get current user info from JWT token

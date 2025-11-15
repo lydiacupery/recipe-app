@@ -14,6 +14,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/public/**").permitAll()
                         .requestMatchers("OPTIONS", "/api/**").permitAll()  // Allow CORS preflight requests
+                        .requestMatchers("GET", "/api/recipes/shared/**").permitAll()  // Allow public access to shared recipes
                         .requestMatchers("/api/recipes/**").authenticated()
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt());

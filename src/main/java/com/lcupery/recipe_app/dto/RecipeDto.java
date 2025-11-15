@@ -27,6 +27,9 @@ public class RecipeDto {
     private String servings;
     private String category;
     private String imageUrl;
+    private boolean isCopy;
+    private String originalAuthorName;
+    private Long originalAuthorId;
     private List<IngredientDto> ingredients = new ArrayList<>();
     private List<StepDto> steps = new ArrayList<>();
 }

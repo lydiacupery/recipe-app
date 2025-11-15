@@ -52,6 +52,15 @@ public class Recipe {
     @Column(name = "image_url", columnDefinition = "TEXT")
     private String imageUrl;
 
+    @Column(name = "is_copy", nullable = false)
+    private boolean isCopy = false;
+
+    @Column(name = "original_author_name")
+    private String originalAuthorName;
+
+    @Column(name = "original_author_id")
+    private Long originalAuthorId;
+
     @OneToMany(mappedBy = "recipe", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Ingredient> ingredients = new ArrayList<>();
 
