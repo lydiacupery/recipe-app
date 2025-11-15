@@ -1,15 +1,12 @@
 package com.lcupery.recipe_app.repository;
 
-import com.lcupery.recipe_app.entity.Recipe;
 import com.lcupery.recipe_app.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
-import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface RecipeRepository extends JpaRepository<Recipe, Long> {
-    List<Recipe> findByUser(User user);
-    Optional<Recipe> findByIdAndUser(Long id, User user);
+public interface UserRepository extends JpaRepository<User, Long> {
+    Optional<User> findByAuth0Id(String auth0Id);
 }

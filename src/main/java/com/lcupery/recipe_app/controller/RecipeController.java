@@ -1,9 +1,11 @@
 package com.lcupery.recipe_app.controller;
 
 import com.lcupery.recipe_app.dto.RecipeDto;
+import com.lcupery.recipe_app.entity.User;
 import com.lcupery.recipe_app.service.ImageGenerationService;
 import com.lcupery.recipe_app.service.ImageRecipeExtractorService;
 import com.lcupery.recipe_app.service.RecipeService;
+import com.lcupery.recipe_app.service.UserService;
 import com.lcupery.recipe_app.service.VercelBlobService;
 import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
@@ -26,6 +28,7 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/recipes")
 public class RecipeController {
     private RecipeService recipeService;
+    private UserService userService;
     private VercelBlobService vercelBlobService;
     private ImageGenerationService imageGenerationService;
     private ImageRecipeExtractorService imageRecipeExtractorService;
@@ -33,45 +36,68 @@ public class RecipeController {
     // build add recipe REST API
     @PostMapping
     public ResponseEntity<RecipeDto> createRecipe(@Valid @RequestBody RecipeDto recipeDto, Authentication authentication) {
-        String userId = extractUserId(authentication);
-        RecipeDto savedRecipe = recipeService.createRecipe(recipeDto, userId);
+        User user = getUserFromJwt(authentication);
+        RecipeDto savedRecipe = recipeService.createRecipe(recipeDto, user);
         return new ResponseEntity<>(savedRecipe, HttpStatus.CREATED);
     }
 
     // get recipe REST API
     @GetMapping("{id}")
     public ResponseEntity<RecipeDto> getRecipeById(@PathVariable("id") Long recipeId, Authentication authentication) {
-        String userId = extractUserId(authentication);
-        RecipeDto recipeDto = recipeService.getRecipeById(recipeId, userId);
+        User user = getUserFromJwt(authentication);
+        RecipeDto recipeDto = recipeService.getRecipeById(recipeId, user);
         return ResponseEntity.ok(recipeDto);
     }
 
     @GetMapping
     public ResponseEntity<List<RecipeDto>> getAllRecipes(Authentication authentication) {
-        String userId = extractUserId(authentication);
-        List<RecipeDto> recipes = recipeService.getAllRecipes(userId);
+        User user = getUserFromJwt(authentication);
+        List<RecipeDto> recipes = recipeService.getAllRecipes(user);
         return ResponseEntity.ok(recipes);
     }
 
     // Build Update Recipe REST API
     @PutMapping("{id}")
     public ResponseEntity<RecipeDto> updateRecipe(@PathVariable("id") Long recipeId, @Valid @RequestBody RecipeDto updatedRecipe, Authentication authentication) {
-        String userId = extractUserId(authentication);
-        RecipeDto recipeDto = recipeService.updateRecipe(recipeId, updatedRecipe, userId);
+        User user = getUserFromJwt(authentication);
+        RecipeDto recipeDto = recipeService.updateRecipe(recipeId, updatedRecipe, user);
         return ResponseEntity.ok(recipeDto);
     }
 
     @DeleteMapping("{id}")
     public ResponseEntity<String> deleteRecipe(@PathVariable("id") Long recipeId, Authentication authentication) {
-        String userId = extractUserId(authentication);
-        recipeService.deleteRecipe(recipeId, userId);
+        User user = getUserFromJwt(authentication);
+        recipeService.deleteRecipe(recipeId, user);
         return ResponseEntity.ok("Recipe deleted");
     }
 
-    // Helper method to extract user ID from JWT token
-    private String extractUserId(Authentication authentication) {
+    // Get current user info from JWT token
+    @GetMapping("/me")
+    public ResponseEntity<Map<String, String>> getCurrentUser(Authentication authentication) {
         Jwt jwt = (Jwt) authentication.getPrincipal();
-        return jwt.getSubject();
+        String userId = jwt.getSubject();
+        String email = jwt.getClaimAsString("email");
+        String name = jwt.getClaimAsString("name");
+
+        log.info("Current user - ID: {}, Email: {}, Name: {}", userId, email, name);
+
+        return ResponseEntity.ok(Map.of(
+            "userId", userId != null ? userId : "",
+            "email", email != null ? email : "",
+            "name", name != null ? name : ""
+        ));
+    }
+
+    // Helper method to get or create user from JWT token
+    private User getUserFromJwt(Authentication authentication) {
+        Jwt jwt = (Jwt) authentication.getPrincipal();
+        String auth0Id = jwt.getSubject();
+        String email = jwt.getClaimAsString("email");
+        String name = jwt.getClaimAsString("name");
+
+        log.info("Processing request for user - auth0_id: {}, email: {}", auth0Id, email);
+
+        return userService.findOrCreateUser(auth0Id, email, name);
     }
 
     @PostMapping(value = "/upload-image", consumes = "multipart/form-data")

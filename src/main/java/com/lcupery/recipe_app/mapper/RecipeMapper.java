@@ -13,7 +13,7 @@ public class RecipeMapper {
     public static RecipeDto mapToRecipeDto(Recipe recipe) {
         RecipeDto recipeDto = new RecipeDto();
         recipeDto.setId(recipe.getId());
-        recipeDto.setUserId(recipe.getUserId());
+        recipeDto.setUserId(recipe.getUser() != null ? recipe.getUser().getAuth0Id() : null);
         recipeDto.setName(recipe.getName());
         recipeDto.setDescription(recipe.getDescription());
         recipeDto.setSourceType(recipe.getSourceType());
@@ -39,7 +39,7 @@ public class RecipeMapper {
     public static Recipe mapToRecipe(RecipeDto recipeDto) {
         Recipe recipe = new Recipe();
         recipe.setId(recipeDto.getId());
-        recipe.setUserId(recipeDto.getUserId());
+        // User is set in the service layer, not from DTO
         recipe.setName(recipeDto.getName());
         recipe.setDescription(recipeDto.getDescription());
         recipe.setSourceType(recipeDto.getSourceType());
