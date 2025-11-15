@@ -12,6 +12,5 @@ import java.util.Optional;
 @Repository
 public interface RecipeRatingRepository extends JpaRepository<RecipeRating, Long> {
     List<RecipeRating> findByRecipe(Recipe recipe);
-    Optional<RecipeRating> findByRecipeAndUser(Recipe recipe, User user);
     List<RecipeRating> findByRecipeOrderByCreatedAtDesc(Recipe recipe);
 }

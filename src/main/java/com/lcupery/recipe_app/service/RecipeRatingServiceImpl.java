@@ -36,18 +36,17 @@ public class RecipeRatingServiceImpl implements RecipeRatingService {
             throw new IllegalArgumentException("Rating must be between 1 and 10");
         }
 
-        // Check if rating already exists for this recipe/user combo
-        RecipeRating recipeRating = ratingRepository.findByRecipeAndUser(recipe, user)
-                .orElse(new RecipeRating());
-
+        // Always create a new rating (supports multiple ratings per user for different family members)
+        RecipeRating recipeRating = new RecipeRating();
         recipeRating.setRecipe(recipe);
         recipeRating.setUser(user);
         recipeRating.setRating(rating);
         recipeRating.setComment(comment);
-        recipeRating.setRaterName(raterName != null ? raterName : "Me");
+        recipeRating.setRaterName(raterName != null && !raterName.trim().isEmpty() ? raterName : "Me");
 
         RecipeRating savedRating = ratingRepository.save(recipeRating);
-        log.info("Rating saved for recipe {} by user {} - rating: {}/10", recipeId, user.getAuth0Id(), rating);
+        log.info("Rating saved for recipe {} by user {} - rater: {}, rating: {}/10",
+                 recipeId, user.getAuth0Id(), raterName, rating);
 
         return RecipeRatingMapper.mapToRecipeRatingDto(savedRating);
     }
