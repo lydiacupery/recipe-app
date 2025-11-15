@@ -30,6 +30,8 @@ public class RecipeDto {
     private boolean isCopy;
     private String originalAuthorName;
     private Long originalAuthorId;
+    private Double averageRating; // Average of all ratings for this recipe
+    private int ratingCount; // Number of ratings
     private List<IngredientDto> ingredients = new ArrayList<>();
     private List<StepDto> steps = new ArrayList<>();
 }

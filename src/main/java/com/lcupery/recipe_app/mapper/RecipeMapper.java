@@ -26,6 +26,20 @@ public class RecipeMapper {
         recipeDto.setCopy(recipe.isCopy());
         recipeDto.setOriginalAuthorName(recipe.getOriginalAuthorName());
         recipeDto.setOriginalAuthorId(recipe.getOriginalAuthorId());
+
+        // Calculate average rating
+        if (recipe.getRatings() != null && !recipe.getRatings().isEmpty()) {
+            double average = recipe.getRatings().stream()
+                    .mapToInt(com.lcupery.recipe_app.entity.RecipeRating::getRating)
+                    .average()
+                    .orElse(0.0);
+            recipeDto.setAverageRating(Math.round(average * 10.0) / 10.0); // Round to 1 decimal
+            recipeDto.setRatingCount(recipe.getRatings().size());
+        } else {
+            recipeDto.setAverageRating(null);
+            recipeDto.setRatingCount(0);
+        }
+
         recipeDto.setIngredients(
                 recipe.getIngredients().stream()
                         .map(IngredientMapper::mapToIngredientDto)
