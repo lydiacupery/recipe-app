@@ -13,6 +13,7 @@ public class SecurityConfig {
         http.cors().and().csrf().disable()
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/public/**").permitAll()
+                        .requestMatchers("OPTIONS", "/api/**").permitAll()  // Allow CORS preflight requests
                         .requestMatchers("/api/recipes/**").authenticated()
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt());
