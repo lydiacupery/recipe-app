@@ -18,30 +18,31 @@ public class RecipeServiceImpl implements RecipeService {
     private RecipeRepository recipeRepository;
 
     @Override
-    public RecipeDto createRecipe(RecipeDto recipeDto) {
+    public RecipeDto createRecipe(RecipeDto recipeDto, String userId) {
         Recipe recipe = RecipeMapper.mapToRecipe(recipeDto);
+        recipe.setUserId(userId);
         Recipe savedRecipe = recipeRepository.save(recipe);
         return RecipeMapper.mapToRecipeDto(savedRecipe);
     }
 
     @Override
-    public RecipeDto getRecipeById(Long recipeId) {
-        Recipe recipe = recipeRepository.findById(recipeId)
+    public RecipeDto getRecipeById(Long recipeId, String userId) {
+        Recipe recipe = recipeRepository.findByIdAndUserId(recipeId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Recipe does not exist with given id: " + recipeId));
         return RecipeMapper.mapToRecipeDto(recipe);
     }
 
     @Override
-    public List<RecipeDto> getAllRecipes() {
-        List<Recipe> recipes = recipeRepository.findAll();
+    public List<RecipeDto> getAllRecipes(String userId) {
+        List<Recipe> recipes = recipeRepository.findByUserId(userId);
         return recipes.stream()
                 .map(RecipeMapper::mapToRecipeDto)
                 .collect(Collectors.toList());
     }
 
     @Override
-    public RecipeDto updateRecipe(Long recipeId, RecipeDto updatedRecipe) {
-        Recipe recipe = recipeRepository.findById(recipeId)
+    public RecipeDto updateRecipe(Long recipeId, RecipeDto updatedRecipe, String userId) {
+        Recipe recipe = recipeRepository.findByIdAndUserId(recipeId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Recipe does not exist with id: " + recipeId));
 
         recipe.setName(updatedRecipe.getName());
@@ -81,8 +82,8 @@ public class RecipeServiceImpl implements RecipeService {
     }
 
     @Override
-    public void deleteRecipe(Long recipeId) {
-        Recipe recipe = recipeRepository.findById(recipeId)
+    public void deleteRecipe(Long recipeId, String userId) {
+        Recipe recipe = recipeRepository.findByIdAndUserId(recipeId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Recipe does not exist with id: " + recipeId));
         recipeRepository.deleteById(recipeId);
     }

@@ -17,6 +17,7 @@ import java.util.List;
 @ValidRecipeSource
 public class RecipeDto {
     private Long id;
+    private String userId;
     private String name;
     private String description;
     private SourceType sourceType;

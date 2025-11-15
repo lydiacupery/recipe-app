@@ -10,6 +10,8 @@ import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -30,35 +32,46 @@ public class RecipeController {
 
     // build add recipe REST API
     @PostMapping
-    public ResponseEntity<RecipeDto> createRecipe(@Valid @RequestBody RecipeDto recipeDto) {
-        RecipeDto savedRecipe = recipeService.createRecipe(recipeDto);
+    public ResponseEntity<RecipeDto> createRecipe(@Valid @RequestBody RecipeDto recipeDto, Authentication authentication) {
+        String userId = extractUserId(authentication);
+        RecipeDto savedRecipe = recipeService.createRecipe(recipeDto, userId);
         return new ResponseEntity<>(savedRecipe, HttpStatus.CREATED);
     }
 
     // get recipe REST API
     @GetMapping("{id}")
-    public ResponseEntity<RecipeDto> getRecipeById(@PathVariable("id") Long recipeId) {
-        RecipeDto recipeDto = recipeService.getRecipeById(recipeId);
+    public ResponseEntity<RecipeDto> getRecipeById(@PathVariable("id") Long recipeId, Authentication authentication) {
+        String userId = extractUserId(authentication);
+        RecipeDto recipeDto = recipeService.getRecipeById(recipeId, userId);
         return ResponseEntity.ok(recipeDto);
     }
 
     @GetMapping
-    public ResponseEntity<List<RecipeDto>> getAllRecipes() {
-        List<RecipeDto> recipes = recipeService.getAllRecipes();
+    public ResponseEntity<List<RecipeDto>> getAllRecipes(Authentication authentication) {
+        String userId = extractUserId(authentication);
+        List<RecipeDto> recipes = recipeService.getAllRecipes(userId);
         return ResponseEntity.ok(recipes);
     }
 
     // Build Update Recipe REST API
     @PutMapping("{id}")
-    public ResponseEntity<RecipeDto> updateRecipe(@PathVariable("id") Long recipeId, @Valid @RequestBody RecipeDto updatedRecipe) {
-        RecipeDto recipeDto = recipeService.updateRecipe(recipeId, updatedRecipe);
+    public ResponseEntity<RecipeDto> updateRecipe(@PathVariable("id") Long recipeId, @Valid @RequestBody RecipeDto updatedRecipe, Authentication authentication) {
+        String userId = extractUserId(authentication);
+        RecipeDto recipeDto = recipeService.updateRecipe(recipeId, updatedRecipe, userId);
         return ResponseEntity.ok(recipeDto);
     }
 
     @DeleteMapping("{id}")
-    public ResponseEntity<String> deleteRecipe(@PathVariable("id") Long recipeId) {
-        recipeService.deleteRecipe(recipeId);
+    public ResponseEntity<String> deleteRecipe(@PathVariable("id") Long recipeId, Authentication authentication) {
+        String userId = extractUserId(authentication);
+        recipeService.deleteRecipe(recipeId, userId);
         return ResponseEntity.ok("Recipe deleted");
+    }
+
+    // Helper method to extract user ID from JWT token
+    private String extractUserId(Authentication authentication) {
+        Jwt jwt = (Jwt) authentication.getPrincipal();
+        return jwt.getSubject();
     }
 
     @PostMapping(value = "/upload-image", consumes = "multipart/form-data")
