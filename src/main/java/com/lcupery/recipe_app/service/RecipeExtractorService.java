@@ -12,6 +12,7 @@ import com.lcupery.recipe_app.entity.SourceType;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.web.util.HtmlUtils;
 
 import java.io.IOException;
 import java.net.URI;
@@ -363,13 +364,15 @@ public class RecipeExtractorService {
 
         // Extract name
         if (recipeNode.has("name")) {
-            recipe.setName(recipeNode.get("name").asText());
+            String name = recipeNode.get("name").asText();
+            recipe.setName(HtmlUtils.htmlUnescape(name));
             log.debug("Extracted recipe name: {}", recipe.getName());
         }
 
         // Extract description
         if (recipeNode.has("description")) {
-            recipe.setDescription(recipeNode.get("description").asText());
+            String description = recipeNode.get("description").asText();
+            recipe.setDescription(HtmlUtils.htmlUnescape(description));
             log.debug("Extracted recipe description: {}", recipe.getDescription());
         }
 
@@ -388,7 +391,7 @@ public class RecipeExtractorService {
             if (ingredientsNode.isArray()) {
                 int index = 0;
                 for (JsonNode ingredientNode : ingredientsNode) {
-                    String rawIngredient = ingredientNode.asText();
+                    String rawIngredient = HtmlUtils.htmlUnescape(ingredientNode.asText());
                     log.debug("Raw ingredient #{}: '{}'", index, rawIngredient);
                     IngredientDto ingredient = parseIngredient(rawIngredient);
                     log.debug("Parsed ingredient #{} - quantity: '{}', name: '{}'",
@@ -418,11 +421,11 @@ public class RecipeExtractorService {
 
                     if (instructionNode.isTextual()) {
                         // Simple text array
-                        instructionText = instructionNode.asText();
+                        instructionText = HtmlUtils.htmlUnescape(instructionNode.asText());
                     } else if (instructionNode.has("@type") && instructionNode.get("@type").asText().equals("HowToStep")) {
                         // HowToStep object
                         if (instructionNode.has("text")) {
-                            instructionText = instructionNode.get("text").asText();
+                            instructionText = HtmlUtils.htmlUnescape(instructionNode.get("text").asText());
                         }
                     }
 
@@ -437,7 +440,7 @@ public class RecipeExtractorService {
                 // Single text instruction
                 StepDto step = new StepDto();
                 step.setStepNumber(1);
-                step.setInstruction(instructionsNode.asText());
+                step.setInstruction(HtmlUtils.htmlUnescape(instructionsNode.asText()));
                 steps.add(step);
             }
         }
@@ -462,9 +465,9 @@ public class RecipeExtractorService {
         if (recipeNode.has("recipeYield")) {
             JsonNode yieldNode = recipeNode.get("recipeYield");
             if (yieldNode.isArray() && yieldNode.size() > 0) {
-                recipe.setServings(yieldNode.get(0).asText());
+                recipe.setServings(HtmlUtils.htmlUnescape(yieldNode.get(0).asText()));
             } else {
-                recipe.setServings(yieldNode.asText());
+                recipe.setServings(HtmlUtils.htmlUnescape(yieldNode.asText()));
             }
             log.debug("Extracted servings: {}", recipe.getServings());
         }
@@ -477,11 +480,11 @@ public class RecipeExtractorService {
                 StringBuilder categories = new StringBuilder();
                 for (int i = 0; i < categoryNode.size(); i++) {
                     if (i > 0) categories.append(", ");
-                    categories.append(categoryNode.get(i).asText());
+                    categories.append(HtmlUtils.htmlUnescape(categoryNode.get(i).asText()));
                 }
                 recipe.setCategory(categories.toString());
             } else {
-                recipe.setCategory(categoryNode.asText());
+                recipe.setCategory(HtmlUtils.htmlUnescape(categoryNode.asText()));
             }
             log.debug("Extracted category: {}", recipe.getCategory());
         }
