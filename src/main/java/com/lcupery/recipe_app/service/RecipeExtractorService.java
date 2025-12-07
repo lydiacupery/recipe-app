@@ -436,7 +436,59 @@ public class RecipeExtractorService {
             log.debug("Extracted category: {}", recipe.getCategory());
         }
 
+        // Extract image URL
+        if (recipeNode.has("image")) {
+            JsonNode imageNode = recipeNode.get("image");
+            String imageUrl = extractImageUrl(imageNode);
+            if (imageUrl != null && !imageUrl.isEmpty()) {
+                recipe.setImageUrl(imageUrl);
+                log.debug("Extracted image URL: {}", imageUrl);
+            }
+        }
+
         return recipe;
+    }
+
+    /**
+     * Extract image URL from schema.org image field
+     * The image field can be:
+     * - A string URL
+     * - An object with "url" property (ImageObject)
+     * - An array of strings or objects
+     */
+    private String extractImageUrl(JsonNode imageNode) {
+        if (imageNode == null) {
+            return null;
+        }
+
+        // Case 1: Simple string URL
+        if (imageNode.isTextual()) {
+            return imageNode.asText();
+        }
+
+        // Case 2: Array of images - take the first one
+        if (imageNode.isArray() && imageNode.size() > 0) {
+            JsonNode firstImage = imageNode.get(0);
+            return extractImageUrl(firstImage); // Recursive call for first element
+        }
+
+        // Case 3: ImageObject with url property
+        if (imageNode.isObject() && imageNode.has("url")) {
+            JsonNode urlNode = imageNode.get("url");
+            if (urlNode.isTextual()) {
+                return urlNode.asText();
+            }
+        }
+
+        // Case 4: ImageObject with contentUrl property (alternative field)
+        if (imageNode.isObject() && imageNode.has("contentUrl")) {
+            JsonNode contentUrlNode = imageNode.get("contentUrl");
+            if (contentUrlNode.isTextual()) {
+                return contentUrlNode.asText();
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -572,6 +624,10 @@ public class RecipeExtractorService {
 
         log.debug("Calling OpenAI API for recipe extraction...");
 
+        // Extract image URLs before stripping HTML
+        List<String> imageUrls = extractImageUrlsFromHtml(htmlContent);
+        String primaryImageUrl = imageUrls.isEmpty() ? null : imageUrls.get(0);
+
         // Strip HTML tags for cleaner input
         String cleanText = htmlContent.replaceAll("<script[^>]*>.*?</script>", "")
                 .replaceAll("<style[^>]*>.*?</style>", "")
@@ -593,6 +649,7 @@ public class RecipeExtractorService {
                 "  \"cookTime\": \"cooking time (e.g., '30 minutes' or 'PT30M')\",\n" +
                 "  \"servings\": \"number of servings (e.g., '4 servings' or '4')\",\n" +
                 "  \"category\": \"recipe category (e.g., 'Appetizer', 'Main Course', 'Dessert', 'Salad', etc.)\",\n" +
+                "  \"imageUrl\": \"URL of the recipe image if present (look for <img> tags with src attributes)\",\n" +
                 "  \"ingredients\": [{\"name\": \"ingredient name\", \"quantity\": \"amount\"}],\n" +
                 "  \"steps\": [{\"stepNumber\": 1, \"instruction\": \"step instruction\"}]\n" +
                 "}\n\n" +
@@ -602,7 +659,8 @@ public class RecipeExtractorService {
                 "3. DO NOT add common cooking steps unless they are explicitly stated\n" +
                 "4. If steps/instructions are not present in the source, return an empty steps array\n" +
                 "5. Copy the exact wording from the source - do not paraphrase or rewrite\n" +
-                "6. If a field is not present, use null or empty string/array\n\n" +
+                "6. For imageUrl, extract the FIRST high-quality recipe image URL found in the page\n" +
+                "7. If a field is not present, use null or empty string/array\n\n" +
                 "Webpage content:\n%s", cleanText
         );
 
@@ -637,6 +695,48 @@ public class RecipeExtractorService {
         recipe.setSourceType(SourceType.URL);
         recipe.setSourceValue(url);
 
+        // If LLM didn't extract an image but we found one in HTML, use that
+        if ((recipe.getImageUrl() == null || recipe.getImageUrl().isEmpty()) && primaryImageUrl != null) {
+            recipe.setImageUrl(primaryImageUrl);
+            log.debug("Using HTML-extracted image URL: {}", primaryImageUrl);
+        }
+
         return recipe;
+    }
+
+    /**
+     * Extract image URLs from HTML content
+     * Looks for <img> tags with src attributes
+     */
+    private List<String> extractImageUrlsFromHtml(String htmlContent) {
+        List<String> imageUrls = new ArrayList<>();
+
+        // Pattern to match img tags with src attributes
+        Pattern imgPattern = Pattern.compile(
+            "<img[^>]+src=[\"']([^\"']+)[\"']",
+            Pattern.CASE_INSENSITIVE
+        );
+        Matcher matcher = imgPattern.matcher(htmlContent);
+
+        while (matcher.find()) {
+            String imgUrl = matcher.group(1);
+
+            // Filter out common non-recipe images (icons, logos, ads, etc.)
+            if (!imgUrl.contains("icon") &&
+                !imgUrl.contains("logo") &&
+                !imgUrl.contains("avatar") &&
+                !imgUrl.contains("ad") &&
+                !imgUrl.contains("pixel") &&
+                !imgUrl.contains("tracking") &&
+                !imgUrl.endsWith(".gif") &&
+                !imgUrl.contains("1x1") &&
+                imgUrl.length() > 20) { // Skip very short URLs (likely tracking pixels)
+
+                imageUrls.add(imgUrl);
+            }
+        }
+
+        log.debug("Found {} potential recipe images in HTML", imageUrls.size());
+        return imageUrls;
     }
 }
