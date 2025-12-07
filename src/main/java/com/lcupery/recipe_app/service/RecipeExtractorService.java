@@ -45,9 +45,10 @@ public class RecipeExtractorService {
     /**
      * Extract recipe from URL using smart fallback approach:
      * 1. Try direct HTTP + schema.org (fast, works for most sites)
-     * 2. Try HtmlUnit + schema.org (for JS-heavy sites)
-     * 3. Try Jina AI + schema.org (last resort for blocked sites)
-     * 4. Fall back to LLM if all schema.org attempts fail
+     * 2. Try HtmlUnit without JS + schema.org (handles redirects, avoids JS errors)
+     * 3. Try HtmlUnit with JS + schema.org (for JS-heavy sites, may have JS errors)
+     * 4. Try Jina AI + schema.org (last resort for blocked sites)
+     * 5. Fall back to LLM if all schema.org attempts fail
      */
     public RecipeDto extractRecipeFromUrl(String url) throws IOException, InterruptedException {
         log.info("Starting recipe extraction from URL: {}", url);
@@ -69,24 +70,38 @@ public class RecipeExtractorService {
             log.warn("✗ Direct HTTP failed: {}", e.getMessage());
         }
 
-        // Method 2: Try HtmlUnit (for JavaScript-heavy sites)
+        // Method 2: Try HtmlUnit without JavaScript first (fast, avoids JS errors)
         try {
-            log.info("Method #2: HtmlUnit fetch + schema.org extraction");
+            log.info("Method #2: HtmlUnit (no JS) fetch + schema.org extraction");
+            htmlContent = fetchWithHtmlUnitNoJs(url);
+            recipe = extractFromSchemaOrg(htmlContent, url);
+            if (recipe != null) {
+                log.info("✓ Successfully extracted recipe using HtmlUnit (no JS) + schema.org");
+                return recipe;
+            }
+            log.info("HtmlUnit (no JS) succeeded but no schema.org data found");
+        } catch (Exception e) {
+            log.warn("✗ HtmlUnit (no JS) failed: {}", e.getMessage());
+        }
+
+        // Method 3: Try HtmlUnit WITH JavaScript (for JS-heavy sites, may have errors)
+        try {
+            log.info("Method #3: HtmlUnit (with JS) fetch + schema.org extraction");
             htmlContent = fetchWithHtmlUnit(url);
             recipe = extractFromSchemaOrg(htmlContent, url);
             if (recipe != null) {
-                log.info("✓ Successfully extracted recipe using HtmlUnit + schema.org");
+                log.info("✓ Successfully extracted recipe using HtmlUnit (with JS) + schema.org");
                 return recipe;
             }
-            log.info("HtmlUnit succeeded but no schema.org data found, trying Jina AI...");
+            log.info("HtmlUnit (with JS) succeeded but no schema.org data found, trying Jina AI...");
         } catch (Exception e) {
-            log.warn("✗ HtmlUnit failed: {}", e.getMessage());
+            log.warn("✗ HtmlUnit (with JS) failed: {}", e.getMessage());
         }
 
-        // Method 3: Try Jina AI as last resort (if enabled)
+        // Method 4: Try Jina AI as last resort (if enabled)
         if (jinaEnabled) {
             try {
-                log.info("Method #3: Jina AI fetch + schema.org extraction");
+                log.info("Method #4: Jina AI fetch + schema.org extraction");
                 htmlContent = fetchWithJinaAi(url);
                 recipe = extractFromSchemaOrg(htmlContent, url);
                 if (recipe != null) {
@@ -99,12 +114,12 @@ public class RecipeExtractorService {
             }
         }
 
-        // Method 4: Fall back to LLM extraction if we have any HTML content
+        // Method 5: Fall back to LLM extraction if we have any HTML content
         if (htmlContent == null) {
             throw new IOException("All fetch methods failed - unable to retrieve webpage content");
         }
 
-        log.info("Method #4: LLM extraction (no schema.org data found in any method)");
+        log.info("Method #5: LLM extraction (no schema.org data found in any method)");
         recipe = extractUsingLLM(htmlContent, url);
         log.info("✓ Successfully extracted recipe using LLM approach");
         return recipe;
@@ -175,7 +190,26 @@ public class RecipeExtractorService {
     }
 
     /**
-     * Fetch method 2: HtmlUnit (renders JavaScript for dynamic sites)
+     * Fetch method 2a: HtmlUnit without JavaScript (avoids JS errors)
+     */
+    private String fetchWithHtmlUnitNoJs(String url) throws IOException {
+        log.debug("Fetching with HtmlUnit (no JavaScript)...");
+        try (WebClient webClient = new WebClient(BrowserVersion.CHROME)) {
+            webClient.getOptions().setCssEnabled(false);
+            webClient.getOptions().setJavaScriptEnabled(false); // Disable JS to avoid errors
+            webClient.getOptions().setThrowExceptionOnFailingStatusCode(false);
+            webClient.getOptions().setTimeout(15000);
+            webClient.getOptions().setPrintContentOnFailingStatusCode(false);
+
+            HtmlPage page = webClient.getPage(url);
+            String html = page.asXml();
+            log.debug("✓ HtmlUnit (no JS) successful, content length: {}", html.length());
+            return html;
+        }
+    }
+
+    /**
+     * Fetch method 2b: HtmlUnit WITH JavaScript (for dynamic sites, may have errors)
      */
     private String fetchWithHtmlUnit(String url) throws IOException {
         log.debug("Fetching with HtmlUnit (renders JavaScript)...");
@@ -186,12 +220,25 @@ public class RecipeExtractorService {
             webClient.getOptions().setThrowExceptionOnFailingStatusCode(false);
             webClient.getOptions().setTimeout(15000);
 
+            // Suppress all JS warnings and errors - we only need the HTML
+            webClient.getOptions().setPrintContentOnFailingStatusCode(false);
+            java.util.logging.Logger.getLogger("com.gargoylesoftware.htmlunit").setLevel(java.util.logging.Level.SEVERE);
+
             HtmlPage page = webClient.getPage(url);
-            webClient.waitForBackgroundJavaScript(5000);
+
+            // Try to wait for JS, but don't fail if it errors
+            try {
+                webClient.waitForBackgroundJavaScript(5000);
+            } catch (Exception e) {
+                log.debug("Background JavaScript had errors (ignoring): {}", e.getMessage());
+            }
 
             String html = page.asXml();
             log.debug("✓ HtmlUnit successful, content length: {}", html.length());
             return html;
+        } catch (com.gargoylesoftware.htmlunit.ScriptException e) {
+            log.warn("HtmlUnit JavaScript error (rethrowing to try next method): {}", e.getMessage());
+            throw new IOException("HtmlUnit JavaScript compilation failed: " + e.getMessage(), e);
         }
     }
 
@@ -237,13 +284,6 @@ public class RecipeExtractorService {
             String jsonContent = matcher.group(1).trim();
             log.debug("Found JSON-LD script block #{}", scriptCount);
 
-            // Skip if content looks like JavaScript code instead of JSON
-            if (jsonContent.contains("function(") || jsonContent.contains("var ") ||
-                jsonContent.contains("const ") || jsonContent.contains("let ")) {
-                log.debug("Skipping JSON-LD block #{} - appears to be JavaScript code, not JSON", scriptCount);
-                continue;
-            }
-
             // Skip if content is empty or too short
             if (jsonContent.length() < 10) {
                 log.debug("Skipping JSON-LD block #{} - content too short", scriptCount);
@@ -251,15 +291,21 @@ public class RecipeExtractorService {
             }
 
             try {
+                // Try to parse as JSON first - if it parses, it's valid JSON-LD regardless of content
                 JsonNode rootNode = objectMapper.readTree(jsonContent);
+                log.debug("Successfully parsed JSON-LD block #{} as valid JSON", scriptCount);
 
                 // Handle both single objects and arrays
                 JsonNode recipeNode = findRecipeNode(rootNode);
                 if (recipeNode != null) {
                     log.debug("Found Recipe node in JSON-LD block #{}", scriptCount);
-                    return parseSchemaOrgRecipe(recipeNode, url);
+                    RecipeDto recipe = parseSchemaOrgRecipe(recipeNode, url);
+                    log.info("✓ Successfully extracted recipe '{}' from schema.org", recipe.getName());
+                    return recipe;
                 } else {
-                    log.debug("No Recipe node found in JSON-LD block #{}", scriptCount);
+                    log.debug("No Recipe node found in JSON-LD block #{} (has @type: {})",
+                        scriptCount,
+                        rootNode.has("@type") ? rootNode.get("@type").asText() : "none");
                 }
             } catch (Exception e) {
                 log.debug("Failed to parse JSON-LD block #{}: {}", scriptCount, e.getMessage());
@@ -340,11 +386,15 @@ public class RecipeExtractorService {
                 ingredientsNode.isArray() ? ingredientsNode.size() : "N/A");
 
             if (ingredientsNode.isArray()) {
+                int index = 0;
                 for (JsonNode ingredientNode : ingredientsNode) {
-                    IngredientDto ingredient = parseIngredient(ingredientNode.asText());
-                    log.debug("Parsed ingredient - quantity: '{}', name: '{}'",
-                        ingredient.getQuantity(), ingredient.getName());
+                    String rawIngredient = ingredientNode.asText();
+                    log.debug("Raw ingredient #{}: '{}'", index, rawIngredient);
+                    IngredientDto ingredient = parseIngredient(rawIngredient);
+                    log.debug("Parsed ingredient #{} - quantity: '{}', name: '{}'",
+                        index, ingredient.getQuantity(), ingredient.getName());
                     ingredients.add(ingredient);
+                    index++;
                 }
             }
         } else {
@@ -516,23 +566,36 @@ public class RecipeExtractorService {
             // Remove "can" or "cans" if it's the first word after the quantity
             text = text.replaceFirst("^cans?\\s+", "");
         } else {
-            // Pattern to match standard quantity formats:
-            // - Numbers (1, 2, 3.5, 1/2, 1 1/2, 1½)
-            // - Optional units (cup, cups, tablespoon, tsp, oz, etc.)
+            // Try to extract quantity from the beginning of the string
+            // Pattern matches: number + optional fraction + optional unit + space + rest
             Pattern quantityPattern = Pattern.compile(
-                "^([\\d\\s\\/\\.½¼¾⅓⅔⅛⅜⅝⅞]+\\s*(?:cup|cups|tablespoon|tablespoons|tbsp|teaspoon|teaspoons|tsp|" +
-                "ounce|ounces|oz|pound|pounds|lb|lbs|gram|grams|g|kilogram|kg|" +
-                "milliliter|ml|liter|l|litre|litres|pint|pints|quart|quarts|gallon|gallons|" +
-                "pinch|dash|clove|cloves|can|cans|package|packages|pkg)?)\\s+(.+)$",
+                "^(\\d+(?:\\s*[\\d\\/½¼¾⅓⅔⅛⅜⅝⅞]*)?)" +  // Number with optional fractions
+                "\\s*" +                                      // Optional whitespace
+                "((?:cup|tablespoon|tbsp|teaspoon|tsp|" +     // Optional unit (singular)
+                "ounce|oz|pound|lb|gram|g|kilogram|kg|" +
+                "milliliter|ml|liter|litre|pint|quart|gallon|" +
+                "pinch|dash|clove|can|package|pkg)s?)??" +   // Optional 's' for plural, non-greedy
+                "\\s+" +                                      // Required space before ingredient name
+                "(.+)$",                                      // Rest of the text (ingredient name)
                 Pattern.CASE_INSENSITIVE
             );
 
             java.util.regex.Matcher matcher = quantityPattern.matcher(text);
 
             if (matcher.find()) {
-                quantity = matcher.group(1).trim();
-                text = matcher.group(2).trim();
-                log.debug("  → Matched quantity pattern: quantity='{}', remaining='{}'", quantity, text);
+                String numberPart = matcher.group(1).trim();
+                String unitPart = matcher.group(2);
+                String namePart = matcher.group(3).trim();
+
+                // Combine number and unit for quantity
+                if (unitPart != null && !unitPart.isEmpty()) {
+                    quantity = numberPart + " " + unitPart;
+                } else {
+                    quantity = numberPart;
+                }
+                text = namePart;
+                log.debug("  → Matched quantity pattern: number='{}', unit='{}', quantity='{}', remaining='{}'",
+                    numberPart, unitPart, quantity, text);
             } else {
                 log.debug("  → No quantity pattern matched, treating entire text as name");
             }
