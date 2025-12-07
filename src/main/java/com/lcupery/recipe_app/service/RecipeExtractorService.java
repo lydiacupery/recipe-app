@@ -500,8 +500,9 @@ public class RecipeExtractorService {
     private IngredientDto parseIngredient(String ingredientText) {
         IngredientDto ingredient = new IngredientDto();
         String text = ingredientText.trim();
+        log.debug("Parsing ingredient: '{}'", ingredientText);
 
-        String quantity = "";
+        String quantity = null;
         String name = text;
 
         // Check for parenthetical quantity first: (14-ounce), (15-oz), etc.
@@ -521,7 +522,8 @@ public class RecipeExtractorService {
             Pattern quantityPattern = Pattern.compile(
                 "^([\\d\\s\\/\\.½¼¾⅓⅔⅛⅜⅝⅞]+\\s*(?:cup|cups|tablespoon|tablespoons|tbsp|teaspoon|teaspoons|tsp|" +
                 "ounce|ounces|oz|pound|pounds|lb|lbs|gram|grams|g|kilogram|kg|" +
-                "milliliter|ml|liter|l|pinch|dash|clove|cloves)?s?)\\s+(.+)$",
+                "milliliter|ml|liter|l|litre|litres|pint|pints|quart|quarts|gallon|gallons|" +
+                "pinch|dash|clove|cloves|can|cans|package|packages|pkg)?)\\s+(.+)$",
                 Pattern.CASE_INSENSITIVE
             );
 
@@ -530,6 +532,9 @@ public class RecipeExtractorService {
             if (matcher.find()) {
                 quantity = matcher.group(1).trim();
                 text = matcher.group(2).trim();
+                log.debug("  → Matched quantity pattern: quantity='{}', remaining='{}'", quantity, text);
+            } else {
+                log.debug("  → No quantity pattern matched, treating entire text as name");
             }
         }
 
@@ -544,9 +549,15 @@ public class RecipeExtractorService {
         // Remove parenthetical notes from name like "(from 1 cup uncooked)"
         name = name.replaceAll("\\s*\\([^)]*\\)\\s*", " ").trim();
 
+        // Set quantity to null if empty rather than empty string
+        if (quantity != null && quantity.isEmpty()) {
+            quantity = null;
+        }
+
         ingredient.setQuantity(quantity);
         ingredient.setName(name);
 
+        log.debug("  → Final result: quantity='{}', name='{}'", quantity, name);
         return ingredient;
     }
 
