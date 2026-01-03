@@ -35,7 +35,10 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AuthenticationException.class)
     public ResponseEntity<Object> handleAuthenticationException(
             AuthenticationException ex, WebRequest request) {
-        log.error("Authentication error: {}", ex.getMessage());
+        log.error("Authentication error: {} - Exception type: {} - Path: {}",
+                ex.getMessage(),
+                ex.getClass().getSimpleName(),
+                request.getDescription(false));
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("timestamp", LocalDateTime.now());
@@ -43,6 +46,8 @@ public class GlobalExceptionHandler {
         body.put("error", "Unauthorized");
         body.put("message", "Authentication required");
         body.put("path", request.getDescription(false).replace("uri=", ""));
+        body.put("details", ex.getMessage());
+        body.put("exceptionType", ex.getClass().getSimpleName());
 
         return new ResponseEntity<>(body, HttpStatus.UNAUTHORIZED);
     }
@@ -50,7 +55,10 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<Object> handleAccessDeniedException(
             AccessDeniedException ex, WebRequest request) {
-        log.error("Access denied: {}", ex.getMessage());
+        log.error("Access denied: {} - Path: {}, Headers: {}",
+                ex.getMessage(),
+                request.getDescription(false),
+                request.getHeaderNames());
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("timestamp", LocalDateTime.now());
@@ -58,6 +66,7 @@ public class GlobalExceptionHandler {
         body.put("error", "Forbidden");
         body.put("message", "You don't have permission to access this resource");
         body.put("path", request.getDescription(false).replace("uri=", ""));
+        body.put("details", ex.getMessage());
 
         return new ResponseEntity<>(body, HttpStatus.FORBIDDEN);
     }

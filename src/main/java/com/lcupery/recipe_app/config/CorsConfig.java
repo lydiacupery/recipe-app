@@ -14,14 +14,16 @@ public class CorsConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(List.of(
-                "http://localhost:3000",
-                "http://localhost:5173",
-                "https://recipe-app-production-025b.up.railway.app",
-                "https://recipe-app-ui-three.vercel.app",
-                "https://planshopcook.app",
-                "https://www.planshopcook.app"
-        ));
+        // Temporarily allow all origins for debugging work laptop issue
+        config.setAllowedOriginPatterns(List.of("*"));
+        // config.setAllowedOrigins(List.of(
+        //         "http://localhost:3000",
+        //         "http://localhost:5173",
+        //         "https://recipe-app-production-025b.up.railway.app",
+        //         "https://recipe-app-ui-three.vercel.app",
+        //         "https://planshopcook.app",
+        //         "https://www.planshopcook.app"
+        // ));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
         config.setAllowedHeaders(List.of("*"));
         config.setExposedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With"));
