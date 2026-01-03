@@ -67,7 +67,8 @@ public class RecipeRatingServiceImpl implements RecipeRatingService {
     @Override
     @Transactional
     public void deleteRating(Long ratingId, User user) {
-        RecipeRating rating = ratingRepository.findById(ratingId)
+        // Use fetch join to eagerly load recipe and user to avoid LazyInitializationException
+        RecipeRating rating = ratingRepository.findByIdWithRecipeAndUser(ratingId)
                 .orElseThrow(() -> new ResourceNotFoundException("Rating not found"));
 
         // Verify user owns the recipe this rating belongs to
