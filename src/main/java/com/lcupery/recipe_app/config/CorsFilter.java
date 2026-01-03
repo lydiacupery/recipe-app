@@ -22,7 +22,9 @@ public class CorsFilter implements Filter {
             "https://recipe-app-production-025b.up.railway.app",
             "https://recipe-app-ui-three.vercel.app",
             "https://planshopcook.app",
-            "https://www.planshopcook.app"
+            "https://www.planshopcook.app",
+            "https://planthenplate.com",
+            "https://www.planthenplate.com"
     );
 
     @Override
