@@ -7,11 +7,13 @@ import com.lcupery.recipe_app.exception.ResourceNotFoundException;
 import com.lcupery.recipe_app.mapper.RecipeMapper;
 import com.lcupery.recipe_app.repository.RecipeRepository;
 import lombok.AllArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @AllArgsConstructor
 public class RecipeServiceImpl implements RecipeService {
@@ -84,8 +86,14 @@ public class RecipeServiceImpl implements RecipeService {
 
     @Override
     public void deleteRecipe(Long recipeId, User user) {
+        log.info("Attempting to delete recipe {} for user {}", recipeId, user.getAuth0Id());
         Recipe recipe = recipeRepository.findByIdAndUser(recipeId, user)
-                .orElseThrow(() -> new ResourceNotFoundException("Recipe does not exist with id: " + recipeId));
+                .orElseThrow(() -> {
+                    log.error("Recipe {} not found for user {} - either doesn't exist or belongs to different user",
+                            recipeId, user.getAuth0Id());
+                    return new ResourceNotFoundException("Recipe does not exist with id: " + recipeId);
+                });
         recipeRepository.deleteById(recipeId);
+        log.info("Successfully deleted recipe {}", recipeId);
     }
 }
