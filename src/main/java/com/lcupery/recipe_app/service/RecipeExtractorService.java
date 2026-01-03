@@ -444,6 +444,26 @@ public class RecipeExtractorService {
                 steps.add(step);
             }
         }
+
+        // If we only extracted 1 step, check if it contains multiple numbered steps
+        // Some websites incorrectly combine all steps into a single HowToStep
+        if (steps.size() == 1) {
+            String singleStepText = steps.get(0).getInstruction();
+            List<String> splitSteps = splitNumberedSteps(singleStepText);
+
+            if (splitSteps.size() > 1) {
+                log.info("Detected combined steps in single instruction, splitting into {} steps", splitSteps.size());
+                steps.clear();
+                int stepNumber = 1;
+                for (String splitStep : splitSteps) {
+                    StepDto step = new StepDto();
+                    step.setStepNumber(stepNumber++);
+                    step.setInstruction(splitStep);
+                    steps.add(step);
+                }
+            }
+        }
+
         recipe.setSteps(steps);
         log.info("Total steps extracted: {}", steps.size());
 
@@ -815,5 +835,57 @@ public class RecipeExtractorService {
 
         log.debug("Found {} potential recipe images in HTML", imageUrls.size());
         return imageUrls;
+    }
+
+    /**
+     * Split a text containing numbered steps into individual steps.
+     * Some recipe websites combine all steps into one text with numbered steps like:
+     * "1. First step 2. Second step 3. Third step"
+     *
+     * This method detects such patterns and splits them into separate steps.
+     *
+     * @param text The combined step text
+     * @return List of individual step texts, or a single-item list if no numbered pattern found
+     */
+    private List<String> splitNumberedSteps(String text) {
+        if (text == null || text.trim().isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // Pattern to match numbered steps like "1." or "1)" at the start, after whitespace, or after a period
+        // This handles cases like: "1. Step one 2. Step two" or "...end.2. Next step"
+        // The pattern looks for: digit(s) followed by a period or closing paren, followed by space
+        Pattern numberedStepPattern = Pattern.compile("(?<=^|\\s|\\.)\\d+[.)]\\s+");
+        Matcher matcher = numberedStepPattern.matcher(text);
+
+        List<Integer> splitPositions = new ArrayList<>();
+        while (matcher.find()) {
+            splitPositions.add(matcher.start());
+        }
+
+        // If we found at least 2 numbered steps, split the text
+        if (splitPositions.size() >= 2) {
+            List<String> steps = new ArrayList<>();
+
+            for (int i = 0; i < splitPositions.size(); i++) {
+                int start = splitPositions.get(i);
+                int end = (i < splitPositions.size() - 1) ? splitPositions.get(i + 1) : text.length();
+
+                String step = text.substring(start, end).trim();
+
+                // Remove the leading number and period/paren
+                step = step.replaceFirst("^\\d+[.)]\\s+", "");
+
+                if (!step.isEmpty()) {
+                    steps.add(step);
+                }
+            }
+
+            log.debug("Split combined step into {} individual steps", steps.size());
+            return steps;
+        }
+
+        // No numbered pattern found, return as single step
+        return List.of(text);
     }
 }
