@@ -180,7 +180,7 @@ public class ShoppingListServiceImpl implements ShoppingListService {
     /**
      * Local fuzzy matching using combined word-level and character-level similarity
      * Uses both word-level Jaccard similarity and character-level n-gram cosine similarity
-     * This prevents false positives like "black pepper" matching "bell pepper"
+     * Special handling for ingredient modifiers (e.g., "milk" matching "warm whole milk")
      */
     private boolean localFuzzyMatch(String normalized1, String normalized2) {
         Set<String> words1 = new HashSet<>(Arrays.asList(normalized1.split("\\s+")));
@@ -194,6 +194,26 @@ public class ShoppingListServiceImpl implements ShoppingListService {
             // No exact word match - reject to prevent "black pepper" matching "bell pepper"
             log.debug("Local match '{}' vs '{}': NO exact word overlap, rejecting", normalized1, normalized2);
             return false;
+        }
+
+        // Check if one ingredient is a complete word subset of the other (handles modifiers)
+        // e.g., "milk" (1 word) is subset of "warm whole milk" (3 words)
+        // But avoid matching "pepper" (1 word) with "bell pepper" (2 words) - need bigger difference
+        int wordCount1 = words1.size();
+        int wordCount2 = words2.size();
+        int wordCountDiff = Math.abs(wordCount1 - wordCount2);
+
+        boolean isSubset = words1.containsAll(words2) || words2.containsAll(words1);
+
+        if (isSubset && wordCountDiff >= 2) {
+            // One contains all words from the other AND significant word count difference
+            // Likely the same ingredient with multiple modifiers (e.g., "warm whole milk" vs "milk")
+            log.debug("Local match '{}' vs '{}': WORD SUBSET detected (diff={}), auto-matching",
+                    normalized1, normalized2, wordCountDiff);
+            return true;
+        } else if (isSubset) {
+            log.debug("Local match '{}' vs '{}': Word subset but small diff ({}), checking similarity",
+                    normalized1, normalized2, wordCountDiff);
         }
 
         // Calculate word-level Jaccard similarity (how many words overlap)
