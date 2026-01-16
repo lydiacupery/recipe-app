@@ -104,6 +104,7 @@ public class ShoppingListServiceImpl implements ShoppingListService {
                     for (PantryItem pantryItem : pantryItems) {
                         if (fuzzyMatch(item.getIngredientName(), pantryItem.getName())) {
                             dto.setInPantry(true);
+                            dto.setPantryItemName(pantryItem.getName());
                             dto.setPantryLocation(pantryItem.getLocation());
                             break;
                         }
@@ -112,6 +113,7 @@ public class ShoppingListServiceImpl implements ShoppingListService {
                     // Set defaults if not found in pantry
                     if (dto.getInPantry() == null) {
                         dto.setInPantry(false);
+                        dto.setPantryItemName(null);
                         dto.setPantryLocation(null);
                     }
 

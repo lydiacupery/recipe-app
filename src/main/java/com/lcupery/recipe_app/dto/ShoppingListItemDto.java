@@ -18,5 +18,6 @@ public class ShoppingListItemDto {
     private String ingredientQuantity;
     private boolean isChecked;
     private Boolean inPantry;
+    private String pantryItemName;
     private StorageLocation pantryLocation;
 }

@@ -13,6 +13,7 @@ public class ShoppingListItemMapper {
                 item.getIngredientQuantity(),
                 item.isChecked(),
                 null,  // inPantry - will be set by service layer
+                null,  // pantryItemName - will be set by service layer
                 null   // pantryLocation - will be set by service layer
         );
     }
