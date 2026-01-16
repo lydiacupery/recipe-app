@@ -59,6 +59,9 @@ public class ShoppingListServiceImpl implements ShoppingListService {
             throw new IllegalStateException("Recipe already in shopping list");
         }
 
+        // Get user's pantry items for auto-checking
+        List<PantryItem> pantryItems = pantryItemRepository.findByUserOrderByNameAsc(user);
+
         // Add all ingredients from recipe
         List<ShoppingListItem> items = recipe.getIngredients().stream()
                 .map(ingredient -> {
@@ -67,14 +70,24 @@ public class ShoppingListServiceImpl implements ShoppingListService {
                     item.setRecipe(recipe);
                     item.setIngredientName(ingredient.getName());
                     item.setIngredientQuantity(ingredient.getQuantity());
-                    item.setChecked(false);
+
+                    // Auto-check if ingredient matches any pantry item
+                    boolean inPantry = pantryItems.stream()
+                            .anyMatch(pantryItem -> fuzzyMatch(ingredient.getName(), pantryItem.getName()));
+                    item.setChecked(inPantry);
+
+                    if (inPantry) {
+                        log.debug("Auto-checked ingredient '{}' (found in pantry)", ingredient.getName());
+                    }
+
                     return item;
                 })
                 .collect(Collectors.toList());
 
         List<ShoppingListItem> saved = shoppingListItemRepository.saveAll(items);
-        log.info("Added {} ingredients from recipe {} to shopping list for user {}",
-                saved.size(), recipeId, user.getAuth0Id());
+        log.info("Added {} ingredients from recipe {} to shopping list for user {} ({} auto-checked)",
+                saved.size(), recipeId, user.getAuth0Id(),
+                saved.stream().filter(ShoppingListItem::isChecked).count());
 
         return saved.stream()
                 .map(ShoppingListItemMapper::mapToDto)
@@ -167,9 +180,22 @@ public class ShoppingListServiceImpl implements ShoppingListService {
     /**
      * Local fuzzy matching using combined word-level and character-level similarity
      * Uses both word-level Jaccard similarity and character-level n-gram cosine similarity
-     * This prevents false positives like "pepper" matching "bell pepper"
+     * This prevents false positives like "black pepper" matching "bell pepper"
      */
     private boolean localFuzzyMatch(String normalized1, String normalized2) {
+        Set<String> words1 = new HashSet<>(Arrays.asList(normalized1.split("\\s+")));
+        Set<String> words2 = new HashSet<>(Arrays.asList(normalized2.split("\\s+")));
+
+        // Check if at least one word matches exactly
+        Set<String> wordIntersection = new HashSet<>(words1);
+        wordIntersection.retainAll(words2);
+
+        if (wordIntersection.isEmpty()) {
+            // No exact word match - reject to prevent "black pepper" matching "bell pepper"
+            log.debug("Local match '{}' vs '{}': NO exact word overlap, rejecting", normalized1, normalized2);
+            return false;
+        }
+
         // Calculate word-level Jaccard similarity (how many words overlap)
         double wordSimilarity = calculateWordSimilarity(normalized1, normalized2);
 
