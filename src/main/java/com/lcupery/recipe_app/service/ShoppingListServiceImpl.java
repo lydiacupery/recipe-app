@@ -22,6 +22,11 @@ import java.util.stream.Collectors;
 @Service
 public class ShoppingListServiceImpl implements ShoppingListService {
 
+    /**
+     * Helper record to return both match result and similarity score
+     */
+    private record MatchResult(boolean isMatch, double score) {}
+
     private final ShoppingListItemRepository shoppingListItemRepository;
     private final RecipeRepository recipeRepository;
     private final PantryItemRepository pantryItemRepository;
@@ -33,8 +38,14 @@ public class ShoppingListServiceImpl implements ShoppingListService {
     @Value("${matching.semantic.threshold:0.75}")
     private double semanticThreshold;
 
+    @Value("${matching.semantic.min:0.50}")
+    private double semanticMinThreshold;
+
     @Value("${matching.local.threshold:0.60}")
     private double localThreshold;
+
+    @Value("${matching.local.min:0.30}")
+    private double localMinThreshold;
 
     public ShoppingListServiceImpl(
             ShoppingListItemRepository shoppingListItemRepository,
@@ -147,40 +158,56 @@ public class ShoppingListServiceImpl implements ShoppingListService {
             return false;
         }
 
-        String normalized1 = shoppingListItem.toLowerCase().trim();
-        String normalized2 = pantryItem.toLowerCase().trim();
+        // Normalize: lowercase, trim, and replace hyphens with spaces
+        // This handles "all-purpose flour" vs "all purpose flour"
+        String normalized1 = shoppingListItem.toLowerCase().trim().replace("-", " ");
+        String normalized2 = pantryItem.toLowerCase().trim().replace("-", " ");
 
         // Exact match
         if (normalized1.equals(normalized2)) {
             return true;
         }
 
-        // Strategy: BOTH (semantic OR local)
+        // Strategy: BOTH (semantic OR local, with minimum thresholds)
         if ("both".equalsIgnoreCase(matchingStrategy)) {
             boolean semanticMatch = false;
+            double semanticSimilarity = 0.0;
             boolean localMatch = false;
+            double localSimilarity = 0.0;
 
             // Try semantic matching
             try {
                 if (embeddingService.isAvailable()) {
-                    double similarity = embeddingService.calculateSimilarity(normalized1, normalized2);
-                    semanticMatch = similarity >= semanticThreshold;
+                    semanticSimilarity = embeddingService.calculateSimilarity(normalized1, normalized2);
+                    semanticMatch = semanticSimilarity >= semanticThreshold;
                     log.debug("Semantic match '{}' vs '{}': similarity={}, threshold={}, match={}",
-                            normalized1, normalized2, similarity, semanticThreshold, semanticMatch);
+                            normalized1, normalized2, semanticSimilarity, semanticThreshold, semanticMatch);
                 }
             } catch (Exception e) {
                 log.warn("Error during semantic matching in BOTH mode", e);
             }
 
             // Try local matching
-            localMatch = localFuzzyMatch(normalized1, normalized2);
+            MatchResult localResult = localFuzzyMatchWithScore(normalized1, normalized2);
+            localMatch = localResult.isMatch();
+            localSimilarity = localResult.score();
 
-            // Match if EITHER method matched
-            boolean finalMatch = semanticMatch || localMatch;
-            if (finalMatch) {
-                log.debug("BOTH strategy '{}' vs '{}': semantic={}, local={}, FINAL=MATCH",
-                        normalized1, normalized2, semanticMatch, localMatch);
-            }
+            // BOTH strategy rules:
+            // 1. At least ONE must pass its main threshold (semantic >= 0.73 OR local >= 0.60)
+            // 2. BOTH must be above minimum thresholds (semantic >= 0.50 AND local >= 0.30)
+            // This prevents false positives where one method strongly disagrees
+            boolean atLeastOneMatches = semanticMatch || localMatch;
+            boolean bothAboveMin = (semanticSimilarity >= semanticMinThreshold) &&
+                                   (localSimilarity >= localMinThreshold);
+
+            boolean finalMatch = atLeastOneMatches && bothAboveMin;
+
+            log.debug("BOTH strategy '{}' vs '{}': semantic={} (match={}, minOK={}), local={} (match={}, minOK={}), FINAL={}",
+                    normalized1, normalized2,
+                    String.format("%.2f", semanticSimilarity), semanticMatch, semanticSimilarity >= semanticMinThreshold,
+                    String.format("%.2f", localSimilarity), localMatch, localSimilarity >= localMinThreshold,
+                    finalMatch ? "MATCH" : "NO MATCH");
+
             return finalMatch;
         }
 
@@ -208,11 +235,9 @@ public class ShoppingListServiceImpl implements ShoppingListService {
     }
 
     /**
-     * Local fuzzy matching using combined word-level and character-level similarity
-     * Uses both word-level Jaccard similarity and character-level n-gram cosine similarity
-     * Special handling for ingredient modifiers (e.g., "milk" matching "warm whole milk")
+     * Local fuzzy matching with score - returns both match result and similarity score
      */
-    private boolean localFuzzyMatch(String normalized1, String normalized2) {
+    private MatchResult localFuzzyMatchWithScore(String normalized1, String normalized2) {
         Set<String> words1 = new HashSet<>(Arrays.asList(normalized1.split("\\s+")));
         Set<String> words2 = new HashSet<>(Arrays.asList(normalized2.split("\\s+")));
 
@@ -223,7 +248,7 @@ public class ShoppingListServiceImpl implements ShoppingListService {
         if (wordIntersection.isEmpty()) {
             // No exact word match - reject to prevent "black pepper" matching "bell pepper"
             log.debug("Local match '{}' vs '{}': NO exact word overlap, rejecting", normalized1, normalized2);
-            return false;
+            return new MatchResult(false, 0.0);
         }
 
         // Check if one ingredient is a complete word subset of the other (handles modifiers)
@@ -240,7 +265,7 @@ public class ShoppingListServiceImpl implements ShoppingListService {
             // Likely the same ingredient with multiple modifiers (e.g., "warm whole milk" vs "milk")
             log.debug("Local match '{}' vs '{}': WORD SUBSET detected (diff={}), auto-matching",
                     normalized1, normalized2, wordCountDiff);
-            return true;
+            return new MatchResult(true, 1.0); // Perfect score for word subset
         } else if (isSubset) {
             log.debug("Local match '{}' vs '{}': Word subset but small diff ({}), checking similarity",
                     normalized1, normalized2, wordCountDiff);
@@ -260,7 +285,16 @@ public class ShoppingListServiceImpl implements ShoppingListService {
         log.debug("Local match '{}' vs '{}': word={}, char={}, combined={}, threshold={}, match={}",
                 normalized1, normalized2, wordSimilarity, charSimilarity, combinedSimilarity, localThreshold, isMatch);
 
-        return isMatch;
+        return new MatchResult(isMatch, combinedSimilarity);
+    }
+
+    /**
+     * Local fuzzy matching using combined word-level and character-level similarity
+     * Uses both word-level Jaccard similarity and character-level n-gram cosine similarity
+     * Special handling for ingredient modifiers (e.g., "milk" matching "warm whole milk")
+     */
+    private boolean localFuzzyMatch(String normalized1, String normalized2) {
+        return localFuzzyMatchWithScore(normalized1, normalized2).isMatch();
     }
 
     /**
