@@ -27,7 +27,7 @@ public class ShoppingListServiceImpl implements ShoppingListService {
     private final PantryItemRepository pantryItemRepository;
     private final EmbeddingService embeddingService;
 
-    @Value("${matching.strategy:semantic}")
+    @Value("${matching.strategy:both}")
     private String matchingStrategy;
 
     @Value("${matching.semantic.threshold:0.75}")
@@ -137,9 +137,10 @@ public class ShoppingListServiceImpl implements ShoppingListService {
 
     /**
      * Fuzzy match between shopping list ingredient and pantry item
-     * Supports two strategies:
-     * 1. Semantic matching using OpenAI embeddings (preferred)
-     * 2. Local matching using word + character similarity (fallback)
+     * Supports three strategies:
+     * 1. "semantic" - OpenAI embeddings only (with fallback to local on error)
+     * 2. "local" - Word + character similarity only
+     * 3. "both" - Try BOTH semantic AND local, match if EITHER succeeds
      */
     private boolean fuzzyMatch(String shoppingListItem, String pantryItem) {
         if (shoppingListItem == null || pantryItem == null) {
@@ -154,7 +155,36 @@ public class ShoppingListServiceImpl implements ShoppingListService {
             return true;
         }
 
-        // Try semantic matching if configured and available
+        // Strategy: BOTH (semantic OR local)
+        if ("both".equalsIgnoreCase(matchingStrategy)) {
+            boolean semanticMatch = false;
+            boolean localMatch = false;
+
+            // Try semantic matching
+            try {
+                if (embeddingService.isAvailable()) {
+                    double similarity = embeddingService.calculateSimilarity(normalized1, normalized2);
+                    semanticMatch = similarity >= semanticThreshold;
+                    log.debug("Semantic match '{}' vs '{}': similarity={}, threshold={}, match={}",
+                            normalized1, normalized2, similarity, semanticThreshold, semanticMatch);
+                }
+            } catch (Exception e) {
+                log.warn("Error during semantic matching in BOTH mode", e);
+            }
+
+            // Try local matching
+            localMatch = localFuzzyMatch(normalized1, normalized2);
+
+            // Match if EITHER method matched
+            boolean finalMatch = semanticMatch || localMatch;
+            if (finalMatch) {
+                log.debug("BOTH strategy '{}' vs '{}': semantic={}, local={}, FINAL=MATCH",
+                        normalized1, normalized2, semanticMatch, localMatch);
+            }
+            return finalMatch;
+        }
+
+        // Strategy: SEMANTIC only (with fallback)
         if ("semantic".equalsIgnoreCase(matchingStrategy)) {
             try {
                 if (embeddingService.isAvailable()) {
@@ -173,7 +203,7 @@ public class ShoppingListServiceImpl implements ShoppingListService {
             }
         }
 
-        // Fall back to local matching (Option 3: combined word + character similarity)
+        // Strategy: LOCAL only (or fallback from semantic)
         return localFuzzyMatch(normalized1, normalized2);
     }
 
