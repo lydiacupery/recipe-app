@@ -10,13 +10,8 @@ import lombok.Setter;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-public class ShoppingListItemDto {
+public class PantryItemDto {
     private Long id;
-    private Long recipeId;
-    private String recipeName;
-    private String ingredientName;
-    private String ingredientQuantity;
-    private boolean isChecked;
-    private Boolean inPantry;
-    private StorageLocation pantryLocation;
+    private String name;
+    private StorageLocation location;
 }

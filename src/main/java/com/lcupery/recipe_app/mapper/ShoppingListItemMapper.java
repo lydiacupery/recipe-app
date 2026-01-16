@@ -11,7 +11,9 @@ public class ShoppingListItemMapper {
                 item.getRecipe().getName(),
                 item.getIngredientName(),
                 item.getIngredientQuantity(),
-                item.isChecked()
+                item.isChecked(),
+                null,  // inPantry - will be set by service layer
+                null   // pantryLocation - will be set by service layer
         );
     }
 

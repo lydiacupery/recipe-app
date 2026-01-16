@@ -1,28 +1,51 @@
 package com.lcupery.recipe_app.service;
 
 import com.lcupery.recipe_app.dto.ShoppingListItemDto;
+import com.lcupery.recipe_app.entity.PantryItem;
 import com.lcupery.recipe_app.entity.Recipe;
 import com.lcupery.recipe_app.entity.ShoppingListItem;
 import com.lcupery.recipe_app.entity.User;
 import com.lcupery.recipe_app.exception.ResourceNotFoundException;
 import com.lcupery.recipe_app.mapper.ShoppingListItemMapper;
+import com.lcupery.recipe_app.repository.PantryItemRepository;
 import com.lcupery.recipe_app.repository.RecipeRepository;
 import com.lcupery.recipe_app.repository.ShoppingListItemRepository;
-import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Slf4j
 @Service
-@AllArgsConstructor
 public class ShoppingListServiceImpl implements ShoppingListService {
 
-    private ShoppingListItemRepository shoppingListItemRepository;
-    private RecipeRepository recipeRepository;
+    private final ShoppingListItemRepository shoppingListItemRepository;
+    private final RecipeRepository recipeRepository;
+    private final PantryItemRepository pantryItemRepository;
+    private final EmbeddingService embeddingService;
+
+    @Value("${matching.strategy:semantic}")
+    private String matchingStrategy;
+
+    @Value("${matching.semantic.threshold:0.75}")
+    private double semanticThreshold;
+
+    @Value("${matching.local.threshold:0.60}")
+    private double localThreshold;
+
+    public ShoppingListServiceImpl(
+            ShoppingListItemRepository shoppingListItemRepository,
+            RecipeRepository recipeRepository,
+            PantryItemRepository pantryItemRepository,
+            EmbeddingService embeddingService) {
+        this.shoppingListItemRepository = shoppingListItemRepository;
+        this.recipeRepository = recipeRepository;
+        this.pantryItemRepository = pantryItemRepository;
+        this.embeddingService = embeddingService;
+    }
 
     @Override
     @Transactional
@@ -71,9 +94,152 @@ public class ShoppingListServiceImpl implements ShoppingListService {
     @Override
     public List<ShoppingListItemDto> getShoppingList(User user) {
         List<ShoppingListItem> items = shoppingListItemRepository.findByUserOrderByIngredientNameAsc(user);
+        List<PantryItem> pantryItems = pantryItemRepository.findByUserOrderByNameAsc(user);
+
         return items.stream()
-                .map(ShoppingListItemMapper::mapToDto)
+                .map(item -> {
+                    ShoppingListItemDto dto = ShoppingListItemMapper.mapToDto(item);
+
+                    // Check if this ingredient matches any pantry items (fuzzy match)
+                    for (PantryItem pantryItem : pantryItems) {
+                        if (fuzzyMatch(item.getIngredientName(), pantryItem.getName())) {
+                            dto.setInPantry(true);
+                            dto.setPantryLocation(pantryItem.getLocation());
+                            break;
+                        }
+                    }
+
+                    // Set defaults if not found in pantry
+                    if (dto.getInPantry() == null) {
+                        dto.setInPantry(false);
+                        dto.setPantryLocation(null);
+                    }
+
+                    return dto;
+                })
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Fuzzy match between shopping list ingredient and pantry item
+     * Supports two strategies:
+     * 1. Semantic matching using OpenAI embeddings (preferred)
+     * 2. Local matching using word + character similarity (fallback)
+     */
+    private boolean fuzzyMatch(String shoppingListItem, String pantryItem) {
+        if (shoppingListItem == null || pantryItem == null) {
+            return false;
+        }
+
+        String normalized1 = shoppingListItem.toLowerCase().trim();
+        String normalized2 = pantryItem.toLowerCase().trim();
+
+        // Exact match
+        if (normalized1.equals(normalized2)) {
+            return true;
+        }
+
+        // Try semantic matching if configured and available
+        if ("semantic".equalsIgnoreCase(matchingStrategy)) {
+            try {
+                if (embeddingService.isAvailable()) {
+                    double similarity = embeddingService.calculateSimilarity(normalized1, normalized2);
+                    boolean isMatch = similarity >= semanticThreshold;
+
+                    log.debug("Semantic match '{}' vs '{}': similarity={}, threshold={}, match={}",
+                            normalized1, normalized2, similarity, semanticThreshold, isMatch);
+
+                    return isMatch;
+                } else {
+                    log.warn("Semantic matching requested but EmbeddingService not available. Falling back to local matching.");
+                }
+            } catch (Exception e) {
+                log.error("Error during semantic matching, falling back to local matching", e);
+            }
+        }
+
+        // Fall back to local matching (Option 3: combined word + character similarity)
+        return localFuzzyMatch(normalized1, normalized2);
+    }
+
+    /**
+     * Local fuzzy matching using combined word-level and character-level similarity
+     * Uses both word-level Jaccard similarity and character-level n-gram cosine similarity
+     * This prevents false positives like "pepper" matching "bell pepper"
+     */
+    private boolean localFuzzyMatch(String normalized1, String normalized2) {
+        // Calculate word-level Jaccard similarity (how many words overlap)
+        double wordSimilarity = calculateWordSimilarity(normalized1, normalized2);
+
+        // Calculate character-level cosine similarity (character n-gram overlap)
+        double charSimilarity = calculateCharSimilarity(normalized1, normalized2);
+
+        // Weighted combination: 60% word similarity, 40% character similarity
+        double combinedSimilarity = (wordSimilarity * 0.6) + (charSimilarity * 0.4);
+
+        boolean isMatch = combinedSimilarity >= localThreshold;
+
+        log.debug("Local match '{}' vs '{}': word={}, char={}, combined={}, threshold={}, match={}",
+                normalized1, normalized2, wordSimilarity, charSimilarity, combinedSimilarity, localThreshold, isMatch);
+
+        return isMatch;
+    }
+
+    /**
+     * Calculate word-level Jaccard similarity
+     * Returns the ratio of common words to total unique words
+     */
+    private double calculateWordSimilarity(String s1, String s2) {
+        Set<String> set1 = new HashSet<>(Arrays.asList(s1.split("\\s+")));
+        Set<String> set2 = new HashSet<>(Arrays.asList(s2.split("\\s+")));
+
+        Set<String> intersection = new HashSet<>(set1);
+        intersection.retainAll(set2);
+
+        Set<String> union = new HashSet<>(set1);
+        union.addAll(set2);
+
+        return union.isEmpty() ? 0.0 : (double) intersection.size() / union.size();
+    }
+
+    /**
+     * Calculate character-level cosine similarity using 2-character n-grams
+     * Returns cosine similarity between n-gram frequency vectors
+     */
+    private double calculateCharSimilarity(String s1, String s2) {
+        Map<String, Integer> vector1 = getNGrams(s1, 2);
+        Map<String, Integer> vector2 = getNGrams(s2, 2);
+
+        // Calculate dot product
+        double dotProduct = 0.0;
+        for (String key : vector1.keySet()) {
+            if (vector2.containsKey(key)) {
+                dotProduct += vector1.get(key) * vector2.get(key);
+            }
+        }
+
+        // Calculate magnitudes
+        double magnitude1 = Math.sqrt(vector1.values().stream().mapToDouble(v -> v * v).sum());
+        double magnitude2 = Math.sqrt(vector2.values().stream().mapToDouble(v -> v * v).sum());
+
+        if (magnitude1 == 0 || magnitude2 == 0) {
+            return 0.0;
+        }
+
+        return dotProduct / (magnitude1 * magnitude2);
+    }
+
+    /**
+     * Generate n-grams (substrings of length n) from a string
+     * Returns a frequency map of n-grams
+     */
+    private Map<String, Integer> getNGrams(String str, int n) {
+        Map<String, Integer> ngrams = new HashMap<>();
+        for (int i = 0; i <= str.length() - n; i++) {
+            String ngram = str.substring(i, i + n);
+            ngrams.put(ngram, ngrams.getOrDefault(ngram, 0) + 1);
+        }
+        return ngrams;
     }
 
     @Override
